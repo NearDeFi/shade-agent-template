@@ -10,6 +10,11 @@ export default async function derive(req, res) {
         });
         return;
     }
+  
+    // Add this check to prevent TEE operations in local dev
+    if (process.env.NODE_ENV !== 'production') {
+        throw new Error('TEE operations only available in production');
+    }
 
     const accountId = await deriveWorkerAccount();
 
