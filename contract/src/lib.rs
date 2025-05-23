@@ -1,14 +1,17 @@
 use hex::{decode, encode};
 use near_sdk::{
     env::{self, block_timestamp},
-    log, near, require,
+    near, require,
     store::{IterableMap, IterableSet},
-    AccountId, PanicOnDefault,
+    AccountId, Gas, NearToken, PanicOnDefault, Promise,
 };
 
 use dcap_qvl::{verify, QuoteCollateralV3};
 
 mod collateral;
+mod ecdsa;
+mod external;
+mod utils;
 
 #[near(serializers = [json, borsh])]
 #[derive(Clone)]
@@ -37,7 +40,7 @@ impl Contract {
         }
     }
 
-    // helpers for method access control
+    // Helpers for method access control
 
     pub fn require_owner(&mut self) {
         require!(env::predecessor_account_id() == self.owner_id);
@@ -53,33 +56,25 @@ impl Contract {
         require!(worker.codehash == codehash);
     }
 
-    // examples for method access control
+    // Examples for method access control
 
-    /// will throw on client if caller is not verified for the provided codehash
-    pub fn is_verified_by_codehash(&mut self, codehash: String) {
-        self.require_worker(codehash);
-
-        // worker agent does something amazing here
-        log!("The agent abides.")
-    }
-
+    // Approve a new codehash 
     pub fn approve_codehash(&mut self, codehash: String) {
-        // !!! UPGRADE TO YOUR METHOD OF MANAGING APPROVED WORKER AGENT CODEHASHES !!!
         self.require_owner();
         self.approved_codehashes.insert(codehash);
     }
 
-    /// will throw on client if worker agent is not registered with a codehash in self.approved_codehashes
-    pub fn is_verified_by_approved_codehash(&mut self) {
+    /// Will throw on client if worker agent is not registered with a codehash in self.approved_codehashes
+    pub fn agent_sign(&mut self, payload: Vec<u8>) -> Promise {
+        // Commented these two lines for local development
         let worker = self.get_worker(env::predecessor_account_id());
-
         require!(self.approved_codehashes.contains(&worker.codehash));
 
-        // worker agent does something amazing here
-        log!("The agent abides.")
+        // Call the MPC contract to get a signature for the payload
+        ecdsa::get_sig(payload, "ethereum-1".to_string(), 0)
     }
 
-    // register args see: https://github.com/mattlockyer/based-agent-template/blob/main/pages/api/register.js
+    // Register args see: https://github.com/mattlockyer/based-agent-template/blob/main/pages/api/register.js
 
     pub fn register_worker(
         &mut self,
@@ -95,8 +90,8 @@ impl Contract {
         let rtmr3 = encode(result.report.as_td10().unwrap().rt_mr3.to_vec());
         let codehash = collateral::verify_codehash(tcb_info, rtmr3);
 
-        // uncomment this line to only allow workers to register if their codehash arg is approved
-        // require!(self.approved_codehashes.contains(&codehash));
+        // Comment this line to allow any worker to register
+        require!(self.approved_codehashes.contains(&codehash));
 
         let predecessor = env::predecessor_account_id();
         self.worker_by_account_id
@@ -105,7 +100,7 @@ impl Contract {
         true
     }
 
-    // views
+    // View functions
 
     pub fn get_worker(&self, account_id: AccountId) -> Worker {
         self.worker_by_account_id

@@ -17,7 +17,7 @@ import {
 import { quote_hex, collateral, tcb_info } from './sample.js';
 
 const codehash =
-    '67b7d2074ac0b6621035b9938f896ed2367707d8384e1e3baa4c0c4c39d05da7';
+    '0bdee8c7caf303c18a29375d144b19cd54f8598d70cfcc47779a3aaec62fda5d';
 
 // tests
 
@@ -82,19 +82,6 @@ test('call register_worker with quote', async (t) => {
     });
 
     console.log('was worker registered?', res);
-
-    t.pass();
-});
-
-test('call is_worker_verified', async (t) => {
-    // will throw if the worker was not registered
-    await contractCall({
-        contractId,
-        methodName: 'is_verified_by_codehash',
-        args: {
-            codehash,
-        },
-    });
 
     t.pass();
 });

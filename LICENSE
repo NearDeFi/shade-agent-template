@@ -1,8 +1,32 @@
-Copyright 2025 Proximity Labs 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+This project provides tools to interact with the public API endpoints of Coinbase and Binance. It is developed independently and is not affiliated with, endorsed by, or officially connected to either Coinbase or Binance.
 
-       http://www.apache.org/licenses/LICENSE-2.0
+License
 
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+This software is licensed under the Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0). You are free to use, modify, and distribute it under the terms of that license.
+
+However, use of this software in conjunction with Coinbase and Binance APIs is subject to additional third-party terms.
+
+⚠️ API Usage Disclaimer
+
+This project interacts with the public APIs offered by:
+
+- Coinbase (https://www.coinbase.com/legal/developer-platform/terms-of-service)  
+- Binance (https://www.binance.com/en/terms) and its API Terms of Use (https://www.binance.com/en/support/faq/binance-api-terms-of-use-360002502072)
+
+By using this software, you acknowledge and agree that:
+
+- You must comply with all applicable third-party terms of service.
+
+- These API terms may restrict:
+  - Commercial use
+  - Redistribution or resale
+  - Automated scraping or excessive requests
+  - Use of the APIs outside of intended or authorized scope
+- This project does not include or redistribute any official SDKs or proprietary code from Coinbase or Binance.
+- You must obtain and manage your own API keys and use them responsibly.
+
+This project does not store, collect, or transmit API credentials.
+
+No Affiliation
+
+This software is an independent open-source project. It is not created, maintained, supported, or endorsed by Coinbase, Inc., Binance Holdings Ltd., or any of their affiliates.

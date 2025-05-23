@@ -31,16 +31,12 @@ const config =
         ? {
               networkId,
               keyStore,
-              nodeUrl: 'https://rpc.testnet.near.org',
-              walletUrl: 'https://testnet.mynearwallet.com/',
-              explorerUrl: 'https://testnet.nearblocks.io',
+              nodeUrl: 'https://test.rpc.fastnear.com',
           }
         : {
               networkId,
               keyStore,
-              nodeUrl: 'https://rpc.near.org',
-              walletUrl: 'https://mynearwallet.com/',
-              explorerUrl: 'https://nearblocks.io',
+              nodeUrl: 'https://free.rpc.fastnear.com',
           };
 const near = new Near(config);
 const { connection } = near;

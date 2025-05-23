@@ -3,10 +3,9 @@ import { registerWorker } from '@neardefi/shade-agent-js';
 export const dynamic = 'force-dynamic';
 
 export default async function register(req, res) {
-    // running locally with/without tappd simulator
     if (process.env.NEXT_PUBLIC_accountId !== undefined) {
-        // cannot register worker with simulator attestation quote
-        console.log('cannot register while running tappd simulator:', endpoint);
+        // cannot register worker when running locally
+        console.log('cannot register while running locally');
         return;
     }
 

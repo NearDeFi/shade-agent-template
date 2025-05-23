@@ -5,7 +5,18 @@ export default function Overlay({ message }) {
 
     return (
         <div className={styles.overlay}>
-            <div className={styles.message}>{message}</div>
+            <div className={styles.message}>
+                {message.text}
+                {!message.success && (
+                    <div className={styles.spinnerContainer}>
+                        <img 
+                            src="/shade-agent.svg" 
+                            alt="Loading..." 
+                            className={styles.spinningLogo}
+                        />
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

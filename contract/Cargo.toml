@@ -15,6 +15,7 @@ base64 = "0.22.1"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 dcap-qvl = { git = "https://github.com/mattlockyer/dcap-qvl" }
 sha2 = "0.10.8"
+serde = "1.0.217"
 
 # rustls-webpki = {git = "https://github.com/mattlockyer/webpki", default-features = false, features=[
 #    "near-wasm",

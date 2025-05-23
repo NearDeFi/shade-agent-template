@@ -1,29 +1,37 @@
 {
     "private": true,
     "scripts": {
-        "test:contract": "cd contract && cargo near build non-reproducible-wasm && cd .. && ava ./tests/test.js --serial --timeout 30s",
+        "test:contract": "ava ./tests/test.js --serial --timeout 30s",
+        "contract:deploy": "cd contract && cargo near build non-reproducible-wasm && cd .. && node utils/deploy-contract.js",
+        "contract:deploy:mac": "docker run --rm -it -v $(pwd):/code -w /code/contract rust:latest bash -c 'apt-get update && apt-get install -y clang llvm build-essential libudev-dev pkg-config && rustup target add wasm32-unknown-unknown && cargo install cargo-near && cargo near build non-reproducible-wasm' && node utils/deploy-contract.js",
         "dev": "next dev",
         "build": "next build",
         "tappd:run": "sudo docker run --rm -p 8090:8090 phalanetwork/tappd-simulator:latest",
         "port:kill": "sudo fuser -k 3000/tcp",
-        "docker:build": "sudo docker build --no-cache --target dev -t my-nextjs-app:latest .",
-        "docker:run": "sudo docker run --rm -p 3000:3000 my-nextjs-app:latest",
-        "docker:image": "sudo docker build --no-cache --target prod -t mattdlockyer/based-agent-test:latest .",
-        "docker:push": "sudo docker push mattdlockyer/based-agent-test",
+        "docker:build": "docker buildx build --platform linux/amd64 --no-cache --target prod -t pivortex/based-agent-template:latest .",
+        "docker:run": "sudo docker run --rm -p 3000:3000 pivortex/based-agent-template:latest",
+        "docker:image": "docker buildx build --platform linux/amd64 --no-cache --target prod -t pivortex/based-agent-template:latest .",
+        "docker:push": "docker push pivortex/based-agent-template:latest",
         "docker:prune": "sudo docker system prune",
         "docker:restart": "sudo systemctl restart docker"
     },
     "dependencies": {
+        "@ethereumjs/tx": "^5.3.0",
+        "@ethereumjs/util": "^9.0.3",
         "@neardefi/shade-agent-js": "^0.0.5",
         "@phala/dcap-qvl-web": "^0.1.0-beta.2",
         "@phala/dstack-sdk": "^0.1.7",
-        "agent-twitter-client": "^0.0.17",
         "dotenv": "^16.4.7",
+        "elliptic": "^6.5.5",
+        "ethers": "^6.11.1",
+        "js-sha3": "^0.9.3",
         "near-api-js": "^5.0.1",
         "near-seed-phrase": "^0.2.1",
         "next": "latest",
         "react": "^18.2.0",
-        "react-dom": "^18.2.0"
+        "react-dom": "^18.2.0",
+        "viem": "^2.28.1",
+        "web3": "^4.6.0"
     },
     "devDependencies": {
         "ava": "^6.1.3"
