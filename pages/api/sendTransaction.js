@@ -19,12 +19,14 @@ export default async function sendTransaction(req, res) {
 
     let verified = false;
     let signRes;
-    // Call the near smart contract to get a signature for the payload
+    // Call the agent contract to get a signature for the payload
     try {
         signRes = await contractCall({
             methodName: 'sign_tx',
             args: {
                 payload,
+                derivation_path: 'ethereum-1',
+                key_version: 0,
             },
         });
         verified = true;
