@@ -65,7 +65,7 @@ impl Contract {
     }
 
     /// Will throw on client if worker agent is not registered with a codehash in self.approved_codehashes
-    pub fn agent_sign(&mut self, payload: Vec<u8>) -> Promise {
+    pub fn sign_tx(&mut self, payload: Vec<u8>) -> Promise {
         // Commented these two lines for local development
         let worker = self.get_worker(env::predecessor_account_id());
         require!(self.approved_codehashes.contains(&worker.codehash));

@@ -22,7 +22,7 @@ export default async function sendTransaction(req, res) {
     // Call the near smart contract to get a signature for the payload
     try {
         signRes = await contractCall({
-            methodName: 'agent_sign',
+            methodName: 'sign_tx',
             args: {
                 payload,
             },
