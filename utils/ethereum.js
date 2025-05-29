@@ -49,10 +49,10 @@ export const Evm = (new chainAdapters.evm.EVM({
     contract: MPC_CONTRACT
 }));
 
-export async function getContractPrice() {
-  const provider = new JsonRpcProvider(ethRpcUrl);
-  const contract = new Contract(ethContractAddress, ethContractAbi, provider);
+const provider = new JsonRpcProvider(ethRpcUrl);
+const contract = new Contract(ethContractAddress, ethContractAbi, provider);
 
+export async function getContractPrice() {
   return await contract.getPrice();
 }
 

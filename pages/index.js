@@ -74,7 +74,6 @@ export default function Home() {
         getPrice();
         const interval = setInterval(() => {
             getEthInfo();
-            getPrice();
         }, 10000);
         return () => clearInterval(interval);
     }, []);
@@ -152,7 +151,7 @@ export default function Home() {
                                 fontSize: '0.9rem'
                             }}
                         >
-                            View the transaction on Etherscan
+                            View the transaction on Etherscan 
                         </a>
                     </div>
                 )}
@@ -236,7 +235,7 @@ export default function Home() {
                                     </button>
                                     <br />
                                     <br />
-                                    Balance: {ethBalance && !isNaN(Number(ethBalance)) ? Number(ethBalance).toFixed(4) : '0'} ETH
+                                    Balance: {ethBalance && !isNaN(Number(ethBalance)) ? Number(ethBalance).toFixed(6) : '0'} ETH
                                     <br />
                                     <a 
                                         href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" 
@@ -332,8 +331,9 @@ export default function Home() {
                             try {
                                 const res = await fetch('/api/sendTransaction').then((r) => r.json());
 
-                                if (res.verified) {
-                                    await getPrice();
+                                if (res.txHash) {
+                                    // Optimistically update the price
+                                    setContractPrice(res.newPrice);
                                     setLastTxHash(res.txHash);
                                     setMessageHide(
                                         <>

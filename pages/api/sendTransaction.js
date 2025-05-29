@@ -12,10 +12,11 @@ export default async function sendTransaction(req, res) {
   // Get the ETH price
   const ethPrice = await getEthereumPriceUSD();
 
+  // Get the transaction and payload to sign
   const { transaction, hashesToSign} = await getPricePayload(ethPrice);
 
-    let verified = false;
     let signRes;
+    let verified = false;
     // Call the agent contract to get a signature for the payload
     try {
         signRes = await contractCall({
@@ -27,9 +28,7 @@ export default async function sendTransaction(req, res) {
             },
         });
         verified = true;
-        
     } catch (e) {
-        verified = false;
         console.error('Contract call error:', e);
     }
 
@@ -46,8 +45,12 @@ export default async function sendTransaction(req, res) {
 
     // Broadcast the signed transaction
     const txHash = await Evm.broadcastTx(signedTransaction);
-
-    res.status(200).json({ verified, txHash });
+    
+    // Send back both the txHash and the new price optimistically
+    res.status(200).json({ 
+        txHash: txHash.hash,
+        newPrice: (ethPrice / 100).toFixed(2) // Format the price the same way as in getPrice
+    });
 }
 
 async function getPricePayload(ethPrice) {
@@ -58,7 +61,6 @@ async function getPricePayload(ethPrice) {
   const provider = new JsonRpcProvider(ethRpcUrl);
   const contract = new Contract(ethContractAddress, ethContractAbi, provider);
   const data = contract.interface.encodeFunctionData('updatePrice', [ethPrice]);
-
   const { transaction, hashesToSign} = await Evm.prepareTransactionForSigning({
     from: senderAddress,
     to: ethContractAddress,
