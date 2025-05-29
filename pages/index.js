@@ -6,14 +6,10 @@ import {
     formatNearAmount,
 } from '@neardefi/shade-agent-js';
 import Overlay from '../components/Overlay';
-import { EthereumVM } from '../utils/ethereum';
-import { ethContractAbi } from '../utils/ethereum';
-
+import { Evm, getContractPrice, convertToDecimal } from '../utils/ethereum';
+const contractId = process.env.NEXT_PUBLIC_contractId;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const ethRpcUrl = 'https://sepolia.drpc.org';
-const ethContractAddress = '0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8';
-const Evm = new EthereumVM(ethRpcUrl);
 
 export default function Home() {
     const [message, setMessage] = useState('');
@@ -43,22 +39,21 @@ export default function Home() {
 
     const getEthInfo = async () => {
         try {
-            const { address } = Evm.deriveAddress(process.env.NEXT_PUBLIC_contractId, "ethereum-1");
+            const { address } = await Evm.deriveAddressAndPublicKey(
+                contractId,
+                "ethereum-1",
+              );
             const balance = await Evm.getBalance(address);
             setEthAddress(address);
-            setEthBalance(balance.toString());
+            setEthBalance(convertToDecimal(balance.balance, balance.decimals));
         } catch (error) {
             console.error('Error fetching ETH info:', error);
         }
     };
 
-    const getContractPrice = async () => {
+    const getPrice = async () => {
         try {
-            const price = await Evm.getContractViewFunction(
-                ethContractAddress,
-                ethContractAbi,
-                'getPrice'
-            );
+            const price = await getContractPrice();
             // Divide by 100 to get the actual price with 2 decimal places
             const displayPrice = (parseInt(price.toString()) / 100).toFixed(2);
             setContractPrice(displayPrice);
@@ -76,10 +71,10 @@ export default function Home() {
     useEffect(() => {
         deriveAccount();
         getEthInfo();
-        getContractPrice();
+        getPrice();
         const interval = setInterval(() => {
             getEthInfo();
-            getContractPrice();
+            getPrice();
         }, 10000);
         return () => clearInterval(interval);
     }, []);
@@ -241,7 +236,7 @@ export default function Home() {
                                     </button>
                                     <br />
                                     <br />
-                                    Balance: {ethBalance ? Number(ethBalance).toFixed(4) : '0'} ETH
+                                    Balance: {ethBalance && !isNaN(Number(ethBalance)) ? Number(ethBalance).toFixed(4) : '0'} ETH
                                     <br />
                                     <a 
                                         href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" 
@@ -321,7 +316,7 @@ export default function Home() {
                             contract:
                             <br />
                             <br />
-                            {process.env.NEXT_PUBLIC_contractId}
+                            {contractId}
                         </p>
                     </a>
 
@@ -338,7 +333,7 @@ export default function Home() {
                                 const res = await fetch('/api/sendTransaction').then((r) => r.json());
 
                                 if (res.verified) {
-                                    await getContractPrice();
+                                    await getPrice();
                                     setLastTxHash(res.txHash);
                                     setMessageHide(
                                         <>

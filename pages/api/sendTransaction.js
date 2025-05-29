@@ -1,21 +1,18 @@
 import { contractCall } from '@neardefi/shade-agent-js';
-import { EthereumVM } from '../../utils/ethereum';
-import { ethContractAbi } from '../../utils/ethereum';
+import { ethContractAbi, ethContractAddress, ethRpcUrl, Evm } from '../../utils/ethereum';
 import { getEthereumPriceUSD } from '../../utils/fetch-eth-price';
+import { Contract, JsonRpcProvider } from "ethers";
+import { utils } from 'chainsig.js';
+const { toRSV } = utils.cryptography;
 
-const ethRpcUrl = 'https://sepolia.drpc.org';
 const contractId = process.env.NEXT_PUBLIC_contractId;
-const ethContractAddress = '0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8';
-
-const Evm = new EthereumVM(ethRpcUrl);
 
 export default async function sendTransaction(req, res) {
 
   // Get the ETH price
   const ethPrice = await getEthereumPriceUSD();
 
-  // Get the payload and transaction
-  const {payload, transaction} = await getPricePayload(ethPrice);
+  const { transaction, hashesToSign} = await getPricePayload(ethPrice);
 
     let verified = false;
     let signRes;
@@ -24,7 +21,7 @@ export default async function sendTransaction(req, res) {
         signRes = await contractCall({
             methodName: 'sign_tx',
             args: {
-                payload,
+                payload: hashesToSign[0],
                 derivation_path: 'ethereum-1',
                 key_version: 0,
             },
@@ -42,29 +39,31 @@ export default async function sendTransaction(req, res) {
     }
 
     // Reconstruct the signed transaction
-    const {big_r, s, recovery_id} = signRes;
-    const signedTransaction = await Evm.reconstructSignedTransaction(
-      big_r,
-      s,
-      recovery_id,
-      transaction
-    );
+    const signedTransaction = Evm.finalizeTransactionSigning({
+      transaction,
+      rsvSignatures: [toRSV(signRes)],
+    })
 
     // Broadcast the signed transaction
-    const txHash = await Evm.broadcastTX(signedTransaction);
+    const txHash = await Evm.broadcastTx(signedTransaction);
 
     res.status(200).json({ verified, txHash });
 }
 
-async function getPricePayload(price) {
-  const { address: senderAddress } = Evm.deriveAddress(contractId, "ethereum-1");
-  const data = Evm.createTransactionData(ethContractAddress, ethContractAbi, 'updatePrice', [price]);
-  const { transaction } = await Evm.createTransaction({
-    sender: senderAddress,
-    receiver: ethContractAddress,
-    amount: 0,
+async function getPricePayload(ethPrice) {
+  const { address: senderAddress } = await Evm.deriveAddressAndPublicKey(
+    contractId,
+    "ethereum-1",
+  );
+  const provider = new JsonRpcProvider(ethRpcUrl);
+  const contract = new Contract(ethContractAddress, ethContractAbi, provider);
+  const data = contract.interface.encodeFunctionData('updatePrice', [ethPrice]);
+
+  const { transaction, hashesToSign} = await Evm.prepareTransactionForSigning({
+    from: senderAddress,
+    to: ethContractAddress,
     data,
   });
-  const payload = await Evm.getPayload({ transaction });
-  return {payload, transaction};
+
+  return {transaction, hashesToSign};
 }
