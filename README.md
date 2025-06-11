@@ -7,7 +7,7 @@ This is a monorepo template for the Shade Agent Stack with all the code and tool
 
 This template is a simple verifiable ETH Price Oracle that pushes prices to an Ethereum contract. 
 
-For full instructions on this repository please refer to our [docs](http://docs.near.org/shade-agents/deploying).
+For full instructions on this repository please refer to our [docs](http://docs.near.org/ai/shade-agents/deploying).
 
 ## TEE Deployment
 
