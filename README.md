@@ -19,7 +19,7 @@ These set of instructions will guide you to deploy your Shade Agent within a TEE
 
 - Update the `docker:image` and `docker:push` scripts within your `package.json` file to match your repo path.
 
-- Configure your `.env.local.development` file with the following:
+- Configure your `.env.development.local` file with the following:
   - Your NEAR account ID.
   - The corresponding private key.
   - Set the contract ID to your account ID prefixed with `contract.` (the contract account will be created during deployment, you should not create this before).
