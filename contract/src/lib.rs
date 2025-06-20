@@ -40,41 +40,22 @@ impl Contract {
         }
     }
 
-    // Helpers for method access control
-
-    pub fn require_owner(&mut self) {
-        require!(env::predecessor_account_id() == self.owner_id);
-    }
-
-    pub fn require_worker(&self, codehash: String) {
-        let worker = self
-            .worker_by_account_id
-            .get(&env::predecessor_account_id())
-            .unwrap()
-            .to_owned();
-
-        require!(worker.codehash == codehash);
-    }
-
-    // Examples for method access control
-
     // Approve a new codehash 
     pub fn approve_codehash(&mut self, codehash: String) {
         self.require_owner();
         self.approved_codehashes.insert(codehash);
     }
 
-    /// Will throw on client if worker agent is not registered with a codehash in self.approved_codehashes
+    /// Will throw an error if the worker agent is not registered with a codehash in self.approved_codehashes
     pub fn sign_tx(&mut self, payload: Vec<u8>, derivation_path: String, key_version: u32) -> Promise {
-        // Comment these two lines for local development
-        let worker = self.get_worker(env::predecessor_account_id());
-        require!(self.approved_codehashes.contains(&worker.codehash));
+        // Comment out this line for local development
+        // self.require_registered_worker();
 
         // Call the MPC contract to get a signature for the payload
         ecdsa::get_sig(payload, derivation_path, key_version)
     }
 
-    // Register args see: https://github.com/mattlockyer/based-agent-template/blob/main/pages/api/register.js
+    // Register worker
 
     pub fn register_worker(
         &mut self,
@@ -87,15 +68,31 @@ impl Contract {
         let quote = decode(quote_hex).unwrap();
         let now = block_timestamp() / 1000000000;
         let result = verify::verify(&quote, &collateral, now).expect("report is not verified");
-        let rtmr3 = encode(result.report.as_td10().unwrap().rt_mr3.to_vec());
-        let codehash = collateral::verify_codehash(tcb_info, rtmr3);
+        let report = result.report.as_td10().unwrap();
+        let report_data = format!("{}", String::from_utf8_lossy(&report.report_data));
 
-        // Comment this line to allow any worker to register
-        require!(self.approved_codehashes.contains(&codehash));
+        // verify the predecessor matches the report data
+        require!(
+            env::predecessor_account_id() == report_data,
+            format!("predecessor_account_id != report_data: {}", report_data)
+        );
+
+        let rtmr3 = encode(report.rt_mr3.to_vec());
+        let (shade_agent_api_image, shade_agent_app_image) =
+            collateral::verify_codehash(tcb_info, rtmr3);
+
+        // verify the code hashes are approved
+        require!(self.approved_codehashes.contains(&shade_agent_api_image));
+        require!(self.approved_codehashes.contains(&shade_agent_app_image));
 
         let predecessor = env::predecessor_account_id();
-        self.worker_by_account_id
-            .insert(predecessor, Worker { checksum, codehash });
+        self.worker_by_account_id.insert(
+            predecessor,
+            Worker {
+                checksum,
+                codehash: shade_agent_app_image,
+            },
+        );
 
         true
     }
@@ -107,5 +104,16 @@ impl Contract {
             .get(&account_id)
             .unwrap()
             .to_owned()
+    }
+
+    // Helpers for method access control
+
+    fn require_owner(&self) {
+        require!(env::predecessor_account_id() == self.owner_id);
+    }
+
+    fn require_registered_worker(&self) {
+        let worker = self.get_worker(env::predecessor_account_id());
+        require!(self.approved_codehashes.contains(&worker.codehash));
     }
 }

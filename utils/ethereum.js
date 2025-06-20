@@ -55,7 +55,7 @@ export async function getContractPrice() {
   return await contract.getPrice();
 }
 
-export function convertToDecimal(bigIntValue, decimals) {
+export function convertToDecimal(bigIntValue, decimals, decimalPlaces = 6) {
   let strValue = bigIntValue.toString();
   
   if (strValue.length <= decimals) {
@@ -66,5 +66,5 @@ export function convertToDecimal(bigIntValue, decimals) {
 
   const result = strValue.slice(0, decimalPos) + '.' + strValue.slice(decimalPos);
 
-  return parseFloat(result).toString();
+  return parseFloat(result).toFixed(decimalPlaces);
 }
