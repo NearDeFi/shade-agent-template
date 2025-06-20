@@ -40,16 +40,21 @@ impl Contract {
         }
     }
 
-    // Approve a new codehash 
+    // Approve a new codehash
     pub fn approve_codehash(&mut self, codehash: String) {
         self.require_owner();
         self.approved_codehashes.insert(codehash);
     }
 
     /// Will throw an error if the worker agent is not registered with a codehash in self.approved_codehashes
-    pub fn sign_tx(&mut self, payload: Vec<u8>, derivation_path: String, key_version: u32) -> Promise {
+    pub fn sign_tx(
+        &mut self,
+        payload: Vec<u8>,
+        derivation_path: String,
+        key_version: u32,
+    ) -> Promise {
         // Comment out this line for local development
-        // self.require_registered_worker();
+        self.require_registered_worker();
 
         // Call the MPC contract to get a signature for the payload
         ecdsa::get_sig(payload, derivation_path, key_version)
