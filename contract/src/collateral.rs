@@ -107,42 +107,33 @@ fn replay_app_compose(app_compose: &str) -> String {
 
 #[test]
 fn test_app_compose_extract() {
-    let mut app_compose = r#"{
-      "bash_script":null,
-      "docker_compose_file":"services:\n    shade-agent-api:\n        environment:\n            NEAR_ACCOUNT_ID: ${NEAR_ACCOUNT_ID}\n            NEAR_SEED_PHRASE: ${NEAR_SEED_PHRASE}\n            CODEHASH: ${CODEHASH}\n            NEXT_PUBLIC_contractId: ${NEXT_PUBLIC_contractId}\n            SHADE_AGENT_PORT: ${SHADE_AGENT_PORT}\n        platform: linux/amd64 # Explicitly set for TDX\n        image: mattdlockyer/shade-agent-api@sha256:a99cbc1c5b45bdbad4691f49019e7fc91efd6ba1e6dd3d0c9632c1dcc94b69fc\n        container_name: shade-agent-api\n        ports:\n            - '3140:3140'\n        volumes:\n            - /var/run/tappd.sock:/var/run/tappd.sock\n        restart: always\n    shade-agent-api-test:\n        platform: linux/amd64 # Explicitly set for TDX\n        image: mattdlockyer/shade-agent-api-test@sha256:105015ca023e386df24f80fe45f6545f206df75e8f37debee00f603057da462b\n        container_name: shade-agent-api-test\n        ports:\n            - '3000:3000'\n        volumes:\n            - /var/run/tappd.sock:/var/run/tappd.sock\n        restart: always\n",
-      "docker_config":{
-          "password":"",
-          "registry":null,
-          "username":""
-      },
-      "features":[
-          "kms",
-          "tproxy-net"
-      ],
-      "kms_enabled":true,
-      "manifest_version":2,
-      "name":"shade-agent-api-test",
-      "pre_launch_script":"\n#!/bin/bash\necho \"----------------------------------------------\"\necho \"Running Phala Cloud Pre-Launch Script v0.0.2\"\necho \"----------------------------------------------\"\nset -e\n\n# Function: Perform Docker cleanup\nperform_cleanup() {\n    echo \"Pruning unused images\"\n    docker image prune -af\n    echo \"Pruning unused volumes\"\n    docker volume prune -f\n}\n\n# Function: Check Docker login status without exposing credentials\ncheck_docker_login() {\n    # Try to verify login status without exposing credentials\n    if docker info 2>/dev/null | grep -q \"Username\"; then\n        return 0\n    else\n        return 1\n    fi\n}\n\n# Function: Check AWS ECR login status\ncheck_ecr_login() {\n    # Check if we can access the registry without exposing credentials\n    if aws ecr get-authorization-token --region $DSTACK_AWS_REGION &>/dev/null; then\n        return 0\n    else\n        return 1\n    fi\n}\n\n# Main logic starts here\necho \"Starting login process...\"\n\n# Check if Docker credentials exist\nif [[ -n \"$DSTACK_DOCKER_USERNAME\" && -n \"$DSTACK_DOCKER_PASSWORD\" ]]; then\n    echo \"Docker credentials found\"\n    \n    # Check if already logged in\n    if check_docker_login; then\n        echo \"Already logged in to Docker registry\"\n    else\n        echo \"Logging in to Docker registry...\"\n        # Login without exposing password in process list\n        if [[ -n \"$DSTACK_DOCKER_REGISTRY\" ]]; then\n            echo \"$DSTACK_DOCKER_PASSWORD\" | docker login -u \"$DSTACK_DOCKER_USERNAME\" --password-stdin \"$DSTACK_DOCKER_REGISTRY\"\n        else\n            echo \"$DSTACK_DOCKER_PASSWORD\" | docker login -u \"$DSTACK_DOCKER_USERNAME\" --password-stdin\n        fi\n        \n        if [ $? -eq 0 ]; then\n            echo \"Docker login successful\"\n        else\n            echo \"Docker login failed\"\n            exit 1\n        fi\n    fi\n# Check if AWS ECR credentials exist\nelif [[ -n \"$DSTACK_AWS_ACCESS_KEY_ID\" && -n \"$DSTACK_AWS_SECRET_ACCESS_KEY\" && -n \"$DSTACK_AWS_REGION\" && -n \"$DSTACK_AWS_ECR_REGISTRY\" ]]; then\n    echo \"AWS ECR credentials found\"\n    \n    # Check if AWS CLI is installed\n    if ! command -v aws &> /dev/null; then\n        echo \"AWS CLI not installed, installing...\"\n        curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.24.14.zip\" -o \"awscliv2.zip\"\n        echo \"6ff031a26df7daebbfa3ccddc9af1450 awscliv2.zip\" | md5sum -c\n        if [ $? -ne 0 ]; then\n            echo \"MD5 checksum failed\"\n            exit 1\n        fi\n        unzip awscliv2.zip &> /dev/null\n        ./aws/install\n        \n        # Clean up installation files\n        rm -rf awscliv2.zip aws\n    else\n        echo \"AWS CLI is already installed: $(which aws)\"\n    fi\n    \n    # Configure AWS CLI\n    aws configure set aws_access_key_id \"$DSTACK_AWS_ACCESS_KEY_ID\"\n    aws configure set aws_secret_access_key \"$DSTACK_AWS_SECRET_ACCESS_KEY\"\n    aws configure set default.region $DSTACK_AWS_REGION\n    echo \"Logging in to AWS ECR...\"\n    aws ecr get-login-password --region $DSTACK_AWS_REGION | docker login --username AWS --password-stdin \"$DSTACK_AWS_ECR_REGISTRY\"\n    if [ $? -eq 0 ]; then\n        echo \"AWS ECR login successful\"\n    else\n        echo \"AWS ECR login failed\"\n        exit 1\n    fi\nfi\n\nperform_cleanup\n\necho \"----------------------------------------------\"\necho \"Script execution completed\"\necho \"----------------------------------------------\"\n",
-      "public_logs":true,
-      "public_sysinfo":true,
-      "runner":"docker-compose",
-      "salt":"affc4c23-696d-4b96-ac93-ba5e853f06a3",
-      "tproxy_enabled":true,
-      "version":"1.0.0"
-  }"#.to_string();
+    // Simulate the docker-compose.yaml as a string
+    let docker_compose = r#"
+services:
+    web:
+        platform: linux/amd64 # Explicitly set for TDX
+        image: pivortex/shade-agent-template:latest@sha256:55507ecdf3caf57b49ccc9c50fb01396dd3de606dfefc5202ad54374d5794f51
+        ports:
+            - '3000:3000'
+        volumes:
+            - /var/run/tappd.sock:/var/run/tappd.sock
+        restart: always
+"#;
 
-    app_compose.retain(|c| !c.is_whitespace());
+    // Remove whitespace for easier matching (optional, but keeps logic similar to previous test)
+    let mut compact = docker_compose.to_string();
+    compact.retain(|c| !c.is_whitespace());
 
-    println!("{:?}", app_compose);
+    // Find the image line and extract the codehash after @sha256:
+    let image_marker = "image:pivortex/shade-agent-template:latest@sha256:";
+    let start = compact.find(image_marker).expect("image marker not found") + image_marker.len();
+    let codehash = &compact[start..start+64]; // sha256 is 64 hex chars
 
-    let (_, right) = app_compose
-        .split_once("#shade-agent-api-image\\nimage:")
-        .unwrap();
-    let (_, right) = right.split_once("@sha256:").unwrap();
-    let (left, _) = right.split_at(64);
-
-    println!("{:?}", left)
+    println!("Extracted codehash: {}", codehash);
+    assert_eq!(codehash, "55507ecdf3caf57b49ccc9c50fb01396dd3de606dfefc5202ad54374d5794f51");
 }
+
+// Below test fails expired certificates
 
 #[test]
 fn test() {
