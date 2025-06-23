@@ -7,7 +7,7 @@ This is a monorepo template for the Shade Agent Stack with all the code and tool
 
 This template is a simple verifiable ETH Price Oracle that pushes prices to an Ethereum contract. 
 
-For full instructions on this repository please refer to our [docs](http://docs.near.org/ai/shade-agents/deploying).
+For full instructions on this repository please refer to our [docs](https://docs.near.org/ai/shade-agents/production/production-deploying).
 
 ## TEE Deployment
 
@@ -19,7 +19,7 @@ These set of instructions will guide you to deploy your Shade Agent within a TEE
 
 - Update the `docker:image` and `docker:push` scripts within your `package.json` file to match your repo path.
 
-- Configure your `.env.local.development` file with the following:
+- Configure your `.env.development.local` file with the following:
   - Your NEAR account ID.
   - The seed phrase for this account.
   - Set the contract ID to your account ID prefixed with `contract.` (the contract account will be created during deployment, you should not create this before).
