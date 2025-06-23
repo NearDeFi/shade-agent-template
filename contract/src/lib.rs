@@ -83,11 +83,9 @@ impl Contract {
         );
 
         let rtmr3 = encode(report.rt_mr3.to_vec());
-        let (shade_agent_api_image, shade_agent_app_image) =
-            collateral::verify_codehash(tcb_info, rtmr3);
+        let shade_agent_app_image = collateral::verify_codehash(tcb_info, rtmr3);
 
         // verify the code hashes are approved
-        require!(self.approved_codehashes.contains(&shade_agent_api_image));
         require!(self.approved_codehashes.contains(&shade_agent_app_image));
 
         let predecessor = env::predecessor_account_id();

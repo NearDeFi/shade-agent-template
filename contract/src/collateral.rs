@@ -31,7 +31,7 @@ pub fn get_collateral(raw_quote_collateral: String) -> QuoteCollateralV3 {
     }
 }
 
-pub fn verify_codehash(raw_tcb_info: String, rtmr3: String) -> (String, String) {
+pub fn verify_codehash(raw_tcb_info: String, rtmr3: String) -> String {
     let tcb_info: Value =
         serde_json::from_str(&raw_tcb_info).expect("TCB Info should be valid JSON");
     let event_log = tcb_info["event_log"].as_array().unwrap();
@@ -54,30 +54,11 @@ pub fn verify_codehash(raw_tcb_info: String, rtmr3: String) -> (String, String) 
     // event with compose hash matches report rtmr3
     require!(replayed_rtmr3 == rtmr3);
 
-    // extract the codehashes of the shade-agent-api-image and the shade-agent-app-image
-    let mut app_compose_string = String::from(app_compose);
-    app_compose_string.retain(|c| !c.is_whitespace());
-
-    let (_, right) = app_compose_string
-        .split_once("#shade-agent-api-image")
-        .unwrap();
-    let (_, right) = right.split_once("\\nimage:").unwrap();
+    let (_, right) = app_compose.split_once("\\n        image:").unwrap();
     let (left, _) = right.split_once("\\n").unwrap();
-    let (_, right) = left.split_once("@sha256:").unwrap();
-    let (shade_agent_api_image, _) = right.split_at(64);
+    let (_, codehash) = left.split_once("@sha256:").unwrap();
 
-    let (_, right) = app_compose_string
-        .split_once("#shade-agent-app-image")
-        .unwrap();
-    let (_, right) = right.split_once("\\nimage:").unwrap();
-    let (left, _) = right.split_once("\\n").unwrap();
-    let (_, right) = left.split_once("@sha256:").unwrap();
-    let (shade_agent_app_image, _) = right.split_at(64);
-
-    (
-        shade_agent_api_image.to_owned(),
-        shade_agent_app_image.to_owned(),
-    )
+    codehash.to_owned()
 }
 
 // helpers

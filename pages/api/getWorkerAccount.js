@@ -2,20 +2,15 @@ import {getBalance, deriveAgentAccount } from '@neardefi/shade-agent-js';
 
 export default async function handler(req, res) {
     try {
-        if (process.env.NEXT_PUBLIC_accountId !== undefined) {
-            const balance = await getBalance(process.env.NEXT_PUBLIC_accountId);
-            res.status(200).json({ accountId: process.env.NEXT_PUBLIC_accountId, balance: balance.available });
+        if (process.env.NODE_ENV !== 'production') {
+            const balance = await getBalance(process.env.NEAR_ACCOUNT_ID);
+            res.status(200).json({ accountId: process.env.NEAR_ACCOUNT_ID, balance: balance.available });
             return;
         }
-      
-        // Add this check to prevent TEE operations in local dev
-        if (process.env.NODE_ENV !== 'production') {
-            throw new Error('TEE operations only available in production');
-        }
-    
+
         const accountId = await deriveAgentAccount();
         const balance = await getBalance(accountId);
-
+        
         res.status(200).json({ accountId: accountId, balance: balance.available });
     } catch (error) {
         console.log('Error getting worker account:', error);
