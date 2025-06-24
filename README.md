@@ -24,7 +24,7 @@ These set of instructions will guide you to deploy your Shade Agent within a TEE
   - The seed phrase for this account.
   - Set the contract ID to your account ID prefixed with `contract.` (the contract account will be created during deployment, you should not create this before).
 
-- Set the same details in your `.env` file.
+- Set the exact same variables in your `.env` file.
 
 - Open Docker Desktop (you don't need to do anything here, it's just to start up Docker).
 
