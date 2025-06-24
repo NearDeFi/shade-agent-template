@@ -1,24 +1,20 @@
 import Head from 'next/head';
 import styles from '../styles/Home.module.css';
 import { useState, useEffect } from 'react';
-import {
-    getBalance,
-    formatNearAmount,
-} from '@neardefi/shade-agent-js';
 import Overlay from '../components/Overlay';
 import { Evm, getContractPrice, convertToDecimal } from '../utils/ethereum';
 const contractId = process.env.NEXT_PUBLIC_contractId;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-
 export default function Home() {
     const [message, setMessage] = useState('');
     const [accountId, setAccountId] = useState();
-    const [balance, setBalance] = useState({ available: '0' });
+    const [balance, setBalance] = useState(0);
     const [ethAddress, setEthAddress] = useState('');
     const [ethBalance, setEthBalance] = useState('0');
     const [contractPrice, setContractPrice] = useState(null);
     const [lastTxHash, setLastTxHash] = useState(null);
+    const [error, setError] = useState('');
 
     const setMessageHide = async (message, dur = 3000, success = false) => {
         setMessage({ text: message, success });
@@ -26,50 +22,50 @@ export default function Home() {
         setMessage('');
     };
 
-    const getBalanceSleep = async (accountId) => {
-        await sleep(1000);
-        const balance = await getBalance(accountId);
-
-        if (balance.available === '0') {
-            getBalanceSleep(accountId);
+    const getWorkerDetails = async () => {
+        const res = await fetch('/api/getWorkerAccount').then((r) => r.json());
+        if (res.error) {
+            console.log('Error getting worker account:', res.error);
+            setError('Failed to get worker account details');
             return;
         }
-        setBalance(balance);
+        setAccountId(res.accountId);
+        const formattedBalance = convertToDecimal(res.balance.toString(), 24);
+        setBalance(formattedBalance);
     };
 
     const getEthInfo = async () => {
         try {
-            const { address } = await Evm.deriveAddressAndPublicKey(
-                contractId,
-                "ethereum-1",
-              );
+            const res = await fetch('/api/getEthAccount').then((r) => r.json());
+            if (res.error) {
+                console.log('Error getting ETH account:', res.error);
+                setError('Failed to get ETH account details');
+                return;
+            }
+            const address = res.senderAddress;
             const balance = await Evm.getBalance(address);
             setEthAddress(address);
-            setEthBalance(convertToDecimal(balance.balance, balance.decimals));
+            const formattedBalance = convertToDecimal(balance.balance.toString(), balance.decimals);
+            setEthBalance(formattedBalance);
         } catch (error) {
-            console.error('Error fetching ETH info:', error);
+            console.log('Error fetching ETH info:', error);
+            setError('Failed to fetch ETH account details');
         }
     };
 
     const getPrice = async () => {
         try {
             const price = await getContractPrice();
-            // Divide by 100 to get the actual price with 2 decimal places
             const displayPrice = (parseInt(price.toString()) / 100).toFixed(2);
             setContractPrice(displayPrice);
         } catch (error) {
-            console.error('Error fetching contract price:', error);
+            console.log('Error fetching contract price:', error);
+            setError('Failed to fetch contract price');
         }
     };
 
-    const deriveAccount = async () => {
-        const res = await fetch('/api/derive').then((r) => r.json());
-        setAccountId(res.accountId);
-        getBalanceSleep(res.accountId);
-    };
-
     useEffect(() => {
-        deriveAccount();
+        getWorkerDetails();
         getEthInfo();
         getPrice();
         const interval = setInterval(() => {
@@ -164,7 +160,7 @@ export default function Home() {
                             <br />
                             <br />
                             {accountId?.length >= 24
-                                ? accountId?.substring(0, 24) + '...'
+                                ? `${accountId.substring(0, 10)}...${accountId.substring(accountId.length - 4)}`
                                 : accountId}
                             <br />
                             <button
@@ -187,9 +183,17 @@ export default function Home() {
                             <br />
                             <br />
                             balance:{' '}
-                            {balance
-                                ? formatNearAmount(balance.available, 4)
-                                : 0}
+                            {(() => {
+                                if (!balance) {
+                                    return '0';
+                                }
+                                try {
+                                    return balance;
+                                } catch (error) {
+                                    console.error('Error formatting balance:', error);
+                                    return '0';
+                                }
+                            })()}
                             <br />
                             <a 
                                 href="https://near-faucet.io/" 
@@ -214,7 +218,7 @@ export default function Home() {
                             <br />
                             {ethAddress ? (
                                 <>
-                                    {ethAddress.substring(0, 6)}...{ethAddress.substring(ethAddress.length - 4)}
+                                    {ethAddress.substring(0, 10)}...{ethAddress.substring(ethAddress.length - 4)}
                                     <br />
                                     <button
                                         className={styles.btn}
@@ -235,7 +239,7 @@ export default function Home() {
                                     </button>
                                     <br />
                                     <br />
-                                    Balance: {ethBalance && !isNaN(Number(ethBalance)) ? Number(ethBalance).toFixed(6) : '0'} ETH
+                                    Balance: {ethBalance ? ethBalance : '0'} ETH
                                     <br />
                                     <a 
                                         href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" 
@@ -414,6 +418,22 @@ export default function Home() {
                     />
                 </a>
             </footer>
+            {error && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: '#ff4444',
+                    color: 'white',
+                    padding: '10px 20px',
+                    borderRadius: '5px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    zIndex: 1000
+                }}>
+                    {error}
+                </div>
+            )}
         </div>
     );
 }

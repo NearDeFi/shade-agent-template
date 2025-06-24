@@ -106,6 +106,36 @@ fn replay_app_compose(app_compose: &str) -> String {
 }
 
 #[test]
+fn test_app_compose_extract() {
+    // Simulate the docker-compose.yaml as a string
+    let docker_compose = r#"
+services:
+    web:
+        platform: linux/amd64 # Explicitly set for TDX
+        image: pivortex/shade-agent-template:latest@sha256:55507ecdf3caf57b49ccc9c50fb01396dd3de606dfefc5202ad54374d5794f51
+        ports:
+            - '3000:3000'
+        volumes:
+            - /var/run/tappd.sock:/var/run/tappd.sock
+        restart: always
+"#;
+
+    // Remove whitespace for easier matching (optional, but keeps logic similar to previous test)
+    let mut compact = docker_compose.to_string();
+    compact.retain(|c| !c.is_whitespace());
+
+    // Find the image line and extract the codehash after @sha256:
+    let image_marker = "image:pivortex/shade-agent-template:latest@sha256:";
+    let start = compact.find(image_marker).expect("image marker not found") + image_marker.len();
+    let codehash = &compact[start..start+64]; // sha256 is 64 hex chars
+
+    println!("Extracted codehash: {}", codehash);
+    assert_eq!(codehash, "55507ecdf3caf57b49ccc9c50fb01396dd3de606dfefc5202ad54374d5794f51");
+}
+
+// Below test fails expired certificates
+
+#[test]
 fn test() {
     use dcap_qvl::verify;
     use hex::decode;

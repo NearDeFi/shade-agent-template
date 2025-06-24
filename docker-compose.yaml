@@ -1,7 +1,7 @@
 services:
     web:
         platform: linux/amd64 # Explicitly set for TDX
-        image: pivortex/shade-agent-template:latest@sha256:cd8a76702a3949b31a34333cc3c80f6bfbe0874d301fa8f030eebc1b4d264d9c
+        image: pivortex/shade-agent-template:latest@sha256:55507ecdf3caf57b49ccc9c50fb01396dd3de606dfefc5202ad54374d5794f51
         ports:
             - '3000:3000'
         volumes:

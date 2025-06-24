@@ -1,4 +1,4 @@
-import { registerWorker } from '@neardefi/shade-agent-js';
+import { registerAgent } from '@neardefi/shade-agent-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +9,7 @@ export default async function register(req, res) {
         return;
     }
 
-    const registered = await registerWorker();
+    const registered = await registerAgent();
 
     res.status(200).json({ registered });
 }

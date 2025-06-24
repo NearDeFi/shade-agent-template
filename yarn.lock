@@ -468,10 +468,10 @@
     js-sha256 "0.9.0"
     rxjs "7.8.1"
 
-"@neardefi/shade-agent-js@^0.0.5":
-  version "0.0.5"
-  resolved "https://registry.npmjs.org/@neardefi/shade-agent-js/-/shade-agent-js-0.0.5.tgz"
-  integrity sha512-7g18LSpxO69Tq14yV4nAGlZs2AMrYIClTc//E0ngRvQiKD2j6yDBjozn88bS7/AuTfpg0xWVK1OUgqmp/Jx4aA==
+"@neardefi/shade-agent-js@^0.2.1":
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/@neardefi/shade-agent-js/-/shade-agent-js-0.2.1.tgz#ef15c4b5784488f85aa38b8bdb961273fe40d9ad"
+  integrity sha512-dM3VWZ+OyNVNMd+LFKAX8r42b8+8SqivyzyZJUCMV98NfpJrn086P+Noh4XqUSXks7oEWmcKKJwz/kYZe5AQ3w==
 
 "@next/env@15.3.2":
   version "15.3.2"
