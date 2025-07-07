@@ -4,9 +4,9 @@
     "private": true,
     "type": "commonjs",
     "scripts": {
-        "build": "tsc",
+        "start": "tsx src/index.ts",
         "dev": "tsx src/index.ts",
-        "start": "npm run build && node dist/index.js",
+        "build": "tsc",
         "phala:test": "phala cvms create --name my-app --compose ./docker-compose.yaml --env-file ./.env.development.local",
         "docker:test": "sudo docker build -t myapp . && sudo docker run -p 3000:3000 --env-file .env.development.local --rm -e PORT=3000 myapp",
         "docker:prune": "sudo docker system prune",
@@ -23,7 +23,7 @@
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
-        "typescript": "^5.0.0",
-        "tsx": "^4.0.0"
+        "tsx": "^4.0.0",
+        "typescript": "^5.0.0"
     }
 }
