@@ -32,7 +32,7 @@ export const ethContractAbi = [
     "stateMutability": "view",
     "type": "function"
   }
-]  
+] as const;  
 
 const MPC_CONTRACT = new contracts.ChainSignatureContract({
   networkId: `testnet`,
@@ -41,21 +41,21 @@ const MPC_CONTRACT = new contracts.ChainSignatureContract({
 
 const publicClient = createPublicClient({
     transport: http(ethRpcUrl),
-  });
+});
 
-export const Evm = (new chainAdapters.evm.EVM({
+export const Evm = new chainAdapters.evm.EVM({
     publicClient,
     contract: MPC_CONTRACT
-}));
+}) as any;
 
 const provider = new JsonRpcProvider(ethRpcUrl);
 const contract = new Contract(ethContractAddress, ethContractAbi, provider);
 
-export async function getContractPrice() {
+export async function getContractPrice(): Promise<bigint> {
   return await contract.getPrice();
 }
 
-export function convertToDecimal(bigIntValue, decimals, decimalPlaces = 6) {
+export function convertToDecimal(bigIntValue: bigint, decimals: number, decimalPlaces: number = 6): string {
   let strValue = bigIntValue.toString();
   
   if (strValue.length <= decimals) {

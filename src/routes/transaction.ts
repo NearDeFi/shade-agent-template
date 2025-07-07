@@ -1,39 +1,33 @@
 import { Hono } from 'hono';
 import { signWithAgent } from '@neardefi/shade-agent-js';
-import { ethContractAbi, ethContractAddress, ethRpcUrl, Evm } from '../utils/ethereum.js';
-import { getEthereumPriceUSD } from '../utils/fetch-eth-price.js';
+import { ethContractAbi, ethContractAddress, ethRpcUrl, Evm } from '../utils/ethereum';
+import { getEthereumPriceUSD } from '../utils/fetch-eth-price';
 import { Contract, JsonRpcProvider } from "ethers";
 import { utils } from 'chainsig.js';
 const { toRSV } = utils.cryptography;
 
-const contractId = process.env.NEXT_PUBLIC_contractId;
-
 const app = new Hono();
 
-app.post('/', async (c) => {
+app.get('/', async (c) => {
   try {
+    // Fetch the environment variable inside the route
+    const contractId = process.env.NEXT_PUBLIC_contractId;
+    if (!contractId) {
+      return c.json({ error: 'Contract ID not configured' }, 500);
+    }
+
     // Get the ETH price
     const ethPrice = await getEthereumPriceUSD();
+    if (!ethPrice) {
+      return c.json({ error: 'Failed to fetch ETH price' }, 500);
+    }
 
     // Get the transaction and payload to sign
-    const { transaction, hashesToSign} = await getPricePayload(ethPrice);
+    const { transaction, hashesToSign } = await getPricePayload(ethPrice, contractId);
 
-    let signRes;
-    let verified = false;
     // Call the agent contract to get a signature for the payload
-    try {
-        const path = 'ethereum-1';
-        const payload = hashesToSign[0];
-        signRes = await signWithAgent(path, payload);
-        console.log('signRes', signRes);
-        verified = true;
-    } catch (e) {
-        console.log('Contract call error:', e);
-    }
-
-    if (!verified) {
-        return c.json({ verified, error: 'Failed to send price' }, 400);
-    }
+    const signRes = await signWithAgent('ethereum-1', hashesToSign[0]);
+    console.log('signRes', signRes);
 
     // Reconstruct the signed transaction
     const signedTransaction = Evm.finalizeTransactionSigning({
@@ -47,15 +41,15 @@ app.post('/', async (c) => {
     // Send back both the txHash and the new price optimistically
     return c.json({ 
         txHash: txHash.hash,
-        newPrice: (ethPrice / 100).toFixed(2) 
+        newPrice: (ethPrice / 100).toFixed(2)
     });
   } catch (error) {
-    console.error('Error in sendTransaction:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    console.error('Failed to send the transaction:', error);
+    return c.json({ error: 'Failed to send the transaction' }, 500);
   }
 });
 
-async function getPricePayload(ethPrice) {
+async function getPricePayload(ethPrice: number, contractId: string) {
   const { address: senderAddress } = await Evm.deriveAddressAndPublicKey(
     contractId,
     "ethereum-1",
