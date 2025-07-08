@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 
 // Load environment variables from .env file (only needed for local development)
 if (process.env.NODE_ENV !== 'production') {
-    dotenv.config();
+    dotenv.config({ path: '.env.development.local' });
 }
 
 // Import routes
