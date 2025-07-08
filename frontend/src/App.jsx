@@ -17,62 +17,63 @@ export default function Home() {
     const [error, setError] = useState('');
 
     const setMessageHide = async (message, dur = 3000, success = false) => {
-        setMessage({ text: message, success });
-        await sleep(dur);
-        setMessage('');
-    };
+      setMessage({ text: message, success });
+      await sleep(dur);
+      setMessage('');
+  };
+
+  const getPrice = async () => {
+      try {
+          const price = await getContractPrice();
+          const displayPrice = (parseInt(price.toString()) / 100).toFixed(2);
+          setContractPrice(displayPrice);
+      } catch (error) {
+          console.log('Error fetching contract price:', error);
+          setError('Failed to fetch contract price');
+      }
+  };
 
     const getAgentAccount = async () => {
-        const res = await fetch(`${API_URL}/api/agent-account`).then((r) => r.json());
-        if (res.error) {
-            console.log('Error getting worker account:', res.error);
-            setError('Failed to get worker account details');
-            return;
-        }
-        setAccountId(res.accountId);
-        const formattedBalance = convertToDecimal(res.balance, 24);
-        setBalance(formattedBalance);
-    };
+      try {
+      const res = await fetch(`${API_URL}/api/agent-account`).then((r) => r.json());
+      setAccountId(res.accountId);
+      const formattedBalance = convertToDecimal(res.balance, 24);
+      setBalance(formattedBalance);
+      } catch (error) {
+          console.log('Error getting worker account:', error);
+          setError('Failed to get worker account details');
+      }
+  };
 
-    const getEthAccount = async () => {
-        try {
-            const res = await fetch(`${API_URL}/api/eth-account`).then((r) => r.json());
-            if (res.error) {
-                console.log('Error getting ETH account:', res.error);
-                setError('Failed to get ETH account details');
-                return;
-            }
-            const address = res.senderAddress;
-            const balance = res.balance;
-            setEthAddress(address);
-            const formattedBalance = convertToDecimal(balance, 18);
-            setEthBalance(formattedBalance);
-        } catch (error) {
-            console.log('Error fetching ETH info:', error);
-            setError('Failed to fetch ETH account details');
-        }
-    };
+  const getEthAccount = async () => {
+    try {
+          const res = await fetch(`${API_URL}/api/eth-account`).then((r) => r.json());
+          setEthAddress(res.senderAddress);
+          const formattedBalance = convertToDecimal(res.balance, 18);
+          setEthBalance(formattedBalance);
+      } catch (error) {
+          console.log('Error fetching ETH info:', error);
+          setError('Failed to fetch ETH account details');
+      }
+  };
 
-    const getPrice = async () => {
-        try {
-            const price = await getContractPrice();
-            const displayPrice = (parseInt(price.toString()) / 100).toFixed(2);
-            setContractPrice(displayPrice);
-        } catch (error) {
-            console.log('Error fetching contract price:', error);
-            setError('Failed to fetch contract price');
-        }
-    };
+  const setPrice = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/transaction`).then((r) => r.json());
+      setContractPrice(res.newPrice);
+      setLastTxHash(res.txHash);
+      setMessageHide('Successfully set the ETH price!', 3000, true);
+    } catch (error) {
+      setMessageHide('Failed to set price. Check that both accounts are funded.', 3000, true);
+      console.log('Error setting price:', error);
+      setError('Failed to set price');
+    }
+  };
 
     useEffect(() => {
         getAgentAccount();
         getEthAccount();
         getPrice();
-        const interval = setInterval(() => {
-            getEthAccount();
-            getAgentAccount();
-        }, 10000);
-        return () => clearInterval(interval);
     }, []);
 
     return (
@@ -104,46 +105,20 @@ export default function Home() {
                 </ol>
 
                 {contractPrice !== null && (
-                    <div style={{ 
-                        background: '#f5f5f5', 
-                        padding: '1.25rem', 
-                        borderRadius: '10px',
-                        marginBottom: '1rem',
-                        textAlign: 'center',
-                        maxWidth: '350px',
-                        border: '1px solid #e0e0e0',
-                        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
-                    }}>
-                        <h3 style={{ 
-                            margin: '0 0 0.5rem 0',
-                            color: '#666',
-                            fontSize: '1.1rem'
-                        }}>Current Set ETH Price</h3>
-                        <p style={{ 
-                            fontSize: '2rem', 
-                            margin: '0',
-                            fontFamily: 'monospace',
-                            color: '#333'
-                        }}>
+                    <div className="contract-price-box">
+                        <h3 className="contract-price-title">Current Set ETH Price</h3>
+                        <p className="contract-price-value">
                             ${contractPrice}
                         </p>
                     </div>
                 )}
                 {lastTxHash && (
-                    <div style={{ 
-                        marginBottom: '1.5rem',
-                        textAlign: 'center',
-                        maxWidth: '350px'
-                    }}>
+                    <div className="tx-link-box">
                         <a 
                             href={`https://sepolia.etherscan.io/tx/${lastTxHash}`} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            style={{ 
-                                color: '#0070f3', 
-                                textDecoration: 'none',
-                                fontSize: '0.9rem'
-                            }}
+                            className="tx-link"
                         >
                             View the transaction on Etherscan 
                         </a>
@@ -262,46 +237,7 @@ export default function Home() {
                                 text: 'Querying and sending the ETH price to the Ethereum contract...',
                                 success: false
                             });
-
-                            try {
-                                const res = await fetch('http://localhost:3000/api/transaction').then((r) => r.json());
-
-                                if (res.txHash) {
-                                    // Optimistically update the price
-                                    setContractPrice(res.newPrice);
-                                    setLastTxHash(res.txHash);
-                                    setMessageHide(
-                                        <>
-                                            <p>Successfully set the ETH price!</p>
-                                        </>,
-                                        3000,
-                                        true
-                                    );
-                                } else {
-                                    setMessageHide(
-                                        <>
-                                            <h3>Error</h3>
-                                            <p>
-                                            Check that both accounts have been funded.
-                                            </p>
-                                        </>,
-                                        3000,
-                                        true
-                                    );
-                                }
-                            } catch (e) {
-                                console.error(e);
-                                setMessageHide(
-                                    <>
-                                        <h3>Error</h3>
-                                        <p>
-                                        Check that both accounts have been funded.
-                                        </p>
-                                    </>,
-                                    3000,
-                                    true
-                                );
-                            }
+                            await setPrice();
                         }}
                     >
                         <h3>Set ETH Price</h3>
@@ -312,19 +248,12 @@ export default function Home() {
                 </div>
             </main>
 
-            <div style={{ 
-                textAlign: 'center',
-                marginBottom: '1rem'
-            }}>
+            <div className="terms-link-box">
                 <a
                     href="https://fringe-brow-647.notion.site/Terms-for-Price-Oracle-1fb09959836d807a9303edae0985d5f3"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{
-                        color: '#0070f3',
-                        fontSize: '0.8rem',
-                        textDecoration: 'none'
-                    }}
+                    className="terms-link"
                 >
                     Terms of Use
                 </a>
@@ -349,18 +278,7 @@ export default function Home() {
                 </a>
             </footer>
             {error && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: '20px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: '#ff4444',
-                    color: 'white',
-                    padding: '10px 20px',
-                    borderRadius: '5px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                    zIndex: 1000
-                }}>
+                <div className="error-toast">
                     {error}
                 </div>
             )}

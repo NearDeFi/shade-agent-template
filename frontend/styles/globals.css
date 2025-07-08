@@ -231,3 +231,63 @@ body, html {
       height: 2em;
       width: auto;
   }
+
+/* ETH Price Box Styles */
+.contract-price-box {
+    background: #f5f5f5;
+    padding: 1.25rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    text-align: center;
+    max-width: 350px;
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+.contract-price-title {
+    margin: 0 0 0.5rem 0;
+    color: #666;
+    font-size: 1.1rem;
+}
+.contract-price-value {
+    font-size: 2rem;
+    margin: 0;
+    font-family: monospace;
+    color: #333;
+}
+
+/* Transaction Link Box */
+.tx-link-box {
+    margin-bottom: 1.5rem;
+    text-align: center;
+    max-width: 350px;
+}
+.tx-link {
+    color: #0070f3;
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+/* Terms Link Box */
+.terms-link-box {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+.terms-link {
+    color: #0070f3;
+    font-size: 0.8rem;
+    text-decoration: none;
+}
+
+/* Error Toast */
+.error-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff4444;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    z-index: 1000;
+}
