@@ -5,7 +5,7 @@
 
 This is a monorepo template for the Shade Agent Sadnbox with all the code and tools for deploying a Shade Agent on NEAR and Phala Cloud.
 
-This template is a simple verifiable ETH Price Oracle that pushes prices to an Ethereum contract. 
+This template is a simple verifiable ETH Price Oracle that pushes prices to an Ethereum contract.
 
 For full instructions on this repository please refer to our [docs](https://docs.near.org/ai/shade-agents/sandbox/sandbox-deploying).
 
@@ -63,7 +63,7 @@ sudo systemctl start docker
 
 For Mac
 
-Simply open the Docker Desktop application or run: 
+Simply open the Docker Desktop application or run:
 
 ```bash
 open -a Docker
@@ -77,7 +77,7 @@ open -a Docker
 shade-agent-cli
 ```
 
-The CLI will prompt you to enter your `sudo password`. 
+The CLI will prompt you to enter your `sudo password`.
 
 - In another terminal, start the frontend :
 
@@ -88,7 +88,7 @@ yarn start
 
 ---
 
-## TEE Deployment 
+## TEE Deployment
 
 - Change the `NEXT_PUBLIC_contractId` prefix to `ac.sandbox.` followed by your NEAR accountId.
 
@@ -98,7 +98,7 @@ yarn start
 shade-agent-cli
 ```
 
-The CLI will prompt you to enter your `sudo password`. 
+The CLI will prompt you to enter your `sudo password`.
 
 This command will take about 5 minutes to complete.
 

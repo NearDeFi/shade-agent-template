@@ -1,17 +1,17 @@
-import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
-import dotenv from 'dotenv';
-import { cors } from 'hono/cors';
+import { Hono } from "hono";
+import { serve } from "@hono/node-server";
+import dotenv from "dotenv";
+import { cors } from "hono/cors";
 
 // Load environment variables from .env file (only needed for local development)
-if (process.env.NODE_ENV !== 'production') {
-    dotenv.config({ path: '.env.development.local' });
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: ".env.development.local" });
 }
 
 // Import routes
-import ethAccount from './routes/ethAccount';
-import agentAccount from './routes/agentAccount';
-import transaction from './routes/transaction';
+import ethAccount from "./routes/ethAccount";
+import agentAccount from "./routes/agentAccount";
+import transaction from "./routes/transaction";
 
 const app = new Hono();
 
@@ -19,16 +19,16 @@ const app = new Hono();
 app.use(cors());
 
 // Health check
-app.get('/', (c) => c.json({ message: 'App is running' }));
+app.get("/", (c) => c.json({ message: "App is running" }));
 
 // Routes
-app.route('/api/eth-account', ethAccount);
-app.route('/api/agent-account', agentAccount);
-app.route('/api/transaction', transaction);
+app.route("/api/eth-account", ethAccount);
+app.route("/api/agent-account", agentAccount);
+app.route("/api/transaction", transaction);
 
 // Start the server
-const port = Number(process.env.PORT || '3000');
+const port = Number(process.env.PORT || "3000");
 
 console.log(`App is running on port ${port}`);
 
-serve({ fetch: app.fetch, port }); 
+serve({ fetch: app.fetch, port });
