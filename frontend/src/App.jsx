@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import "../styles/globals.css";
 import { getContractPrice, convertToDecimal } from "./ethereum";
 import Overlay from "./Overlay";
+import { API_URL } from "./config";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const API_URL = "http://localhost:3000";
 
 export default function Home() {
   const [message, setMessage] = useState("");
@@ -181,11 +181,7 @@ export default function Home() {
                 href="https://near-faucet.io/"
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  color: "#0070f3",
-                  textDecoration: "none",
-                  fontSize: "0.9rem",
-                }}
+                className="faucet-link"
               >
                 Get Testnet NEAR tokens from faucet →
               </a>
@@ -230,11 +226,7 @@ export default function Home() {
                     href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{
-                      color: "#0070f3",
-                      textDecoration: "none",
-                      fontSize: "0.9rem",
-                    }}
+                    className="faucet-link"
                   >
                     Get Sepolia ETH from faucet →
                   </a>

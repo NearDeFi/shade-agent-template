@@ -292,3 +292,9 @@ html {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   z-index: 1000;
 }
+
+.faucet-link {
+  color: #0070f3;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
