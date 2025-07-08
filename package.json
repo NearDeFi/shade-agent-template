@@ -4,7 +4,7 @@
     "private": true,
     "type": "commonjs",
     "scripts": {
-        "start": "tsx src/index.ts",
+        "start": "node dist/index.js",
         "dev": "tsx src/index.ts",
         "build": "tsc",
         "phala:test": "phala cvms create --name my-app --compose ./docker-compose.yaml --env-file ./.env.development.local",
