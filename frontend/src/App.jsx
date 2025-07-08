@@ -95,7 +95,6 @@ export default function Home() {
     <div className="container">
       <div>
         <title>ETH Price Oracle</title>
-        <link rel="icon" href="/favicon.ico" />
       </div>
       <Overlay message={message} />
 
