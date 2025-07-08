@@ -1,3 +1,4 @@
+// Fetch ETH price from Binance
 async function getETHPriceFromBinance(): Promise<number | null> {
   try {
     const response = await fetch(
@@ -16,6 +17,7 @@ async function getETHPriceFromBinance(): Promise<number | null> {
   }
 }
 
+// Fetch ETH price from Coinbase
 async function getETHPriceFromCoinbase(): Promise<number | null> {
   try {
     const response = await fetch(
@@ -34,6 +36,7 @@ async function getETHPriceFromCoinbase(): Promise<number | null> {
   }
 }
 
+// Fetch ETH price from Binance and Coinbase and return the average price
 export async function getEthereumPriceUSD(): Promise<number | null> {
   try {
     // Fetch from both sources

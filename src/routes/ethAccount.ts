@@ -6,14 +6,16 @@ const app = new Hono();
 app.get("/", async (c) => {
   // Fetch the environment variable inside the route
   const contractId = process.env.NEXT_PUBLIC_contractId;
-  console.log(contractId);
   try {
     // Derive the price pusher Ethereum address
     const { address: senderAddress } = await Evm.deriveAddressAndPublicKey(
       contractId,
       "ethereum-1",
     );
+
+    // Get the balance of the address
     const balance = await Evm.getBalance(senderAddress);
+    
     return c.json({ senderAddress, balance: Number(balance.balance) });
   } catch (error) {
     console.log("Error getting the derived Ethereum address:", error);

@@ -1,31 +1,21 @@
-# Use official Node 20 Alpine image
-FROM node:20-alpine
-
-# Set working directory
+# Stage 1: Dependencies
+FROM node:22-alpine AS deps
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --only=production
 
-# Copy package files first for optimal caching
+# Stage 2: Build
+FROM node:22-alpine AS builder
+WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
-
-# Install all dependencies
-RUN npm ci
-
-# Copy source code
+RUN npm ci --include=dev
 COPY src/ ./src/
-
-# Set non-root user for security
-RUN chown -R node:node /app
-USER node
-
-# Build the TypeScript application
 RUN npm run build
 
-# Remove devDependencies to reduce image size
-RUN npm prune --production
-
-# Expose application port
-EXPOSE 3000
-ENV NODE_ENV=production
-
-# Start command
+# Stage 3: Production
+FROM node:22-alpine AS runner
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY package.json ./
 CMD ["npm", "start"]

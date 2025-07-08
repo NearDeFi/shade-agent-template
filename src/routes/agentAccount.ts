@@ -5,8 +5,12 @@ const app = new Hono();
 
 app.get("/", async (c) => {
   try {
+    // Get the agents account Id
     const accountId = await getAgentAccount();
+
+    // Get the balance of the agent account
     const balance = await getBalance(accountId.workerAccountId);
+    
     return c.json({
       accountId: accountId.workerAccountId,
       balance: balance.available,

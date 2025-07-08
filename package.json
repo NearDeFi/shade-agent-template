@@ -10,7 +10,7 @@
     "phala:test": "phala cvms create --name my-app --compose ./docker-compose.yaml --env-file ./.env.development.local",
     "docker:test": "sudo docker build -t myapp . && sudo docker run -p 3000:3000 --env-file .env.development.local --rm -e PORT=3000 myapp",
     "docker:prune": "sudo docker system prune",
-    "docker:image": "sudo docker build --no-cache --platform linux/amd64 -t pivortex/my-app:latest .",
+    "docker:image": "sudo docker build --platform linux/amd64 -t pivortex/my-app:latest .",
     "docker:push": "sudo docker push pivortex/my-app"
   },
   "dependencies": {

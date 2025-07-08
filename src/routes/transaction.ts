@@ -58,13 +58,22 @@ app.get("/", async (c) => {
 });
 
 async function getPricePayload(ethPrice: number, contractId: string) {
+  // Derive the price pusher Ethereum address
   const { address: senderAddress } = await Evm.deriveAddressAndPublicKey(
     contractId,
     "ethereum-1",
   );
+
+  // Create a new JSON-RPC provider for the Ethereum network
   const provider = new JsonRpcProvider(ethRpcUrl);
+
+  // Create a new contract interface for the Ethereum Oracle contract
   const contract = new Contract(ethContractAddress, ethContractAbi, provider);
+
+  // Encode the function data for the updatePrice function
   const data = contract.interface.encodeFunctionData("updatePrice", [ethPrice]);
+  
+  // Prepare the transaction for signing 
   const { transaction, hashesToSign } = await Evm.prepareTransactionForSigning({
     from: senderAddress,
     to: ethContractAddress,
