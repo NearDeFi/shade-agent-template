@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import styles from '../styles/Home.module.css';
+import '../styles/globals.css';
 import { getContractPrice, convertToDecimal } from './ethereum';
 import Overlay from './Overlay';
 
@@ -76,17 +76,17 @@ export default function Home() {
     }, []);
 
     return (
-        <div className={styles.container}>
+        <div className="container">
             <div>
                 <title>ETH Price Oracle</title>
                 <link rel="icon" href="/favicon.ico" />
             </div>
             <Overlay message={message} />
 
-            <main className={styles.main}>
-                <h1 className={styles.title}>ETH Price Oracle</h1>
-                <div className={styles.subtitleContainer}>
-                    <h2 className={styles.subtitle}>Powered by Shade Agents</h2>
+            <main className="main">
+                <h1 className="title">ETH Price Oracle</h1>
+                <div className="subtitleContainer">
+                    <h2 className="subtitle">Powered by Shade Agents</h2>
                 </div>
                 <p>
                     This is a simple example of a verifiable price oracle for an ethereum smart contract using Shade Agents.
@@ -150,8 +150,8 @@ export default function Home() {
                     </div>
                 )}
 
-                <div className={styles.grid}>
-                    <div className={styles.card}>
+                <div className="grid">
+                    <div className="card">
                         <h3>Fund Worker Account</h3>
                         <p>
                             <br />
@@ -160,7 +160,7 @@ export default function Home() {
                                 : accountId}
                             <br />
                             <button
-                                className={styles.btn}
+                                className="btn"
                                 onClick={() => {
                                     try {
                                         if(navigator.clipboard && navigator.clipboard.writeText) {
@@ -206,7 +206,7 @@ export default function Home() {
                         </p>
                     </div>
 
-                    <div className={styles.card}>
+                    <div className="card">
                         <h3>Fund Sepolia Account</h3>
                         <p>
                             <br />
@@ -215,7 +215,7 @@ export default function Home() {
                                     {ethAddress.substring(0, 10)}...{ethAddress.substring(ethAddress.length - 4)}
                                     <br />
                                     <button
-                                        className={styles.btn}
+                                        className="btn"
                                         onClick={() => {
                                             try {
                                                 if(navigator.clipboard && navigator.clipboard.writeText) {
@@ -256,7 +256,7 @@ export default function Home() {
 
                     <a
                         href="#"
-                        className={styles.card}
+                        className="card"
                         onClick={async () => {
                             setMessage({ 
                                 text: 'Querying and sending the ETH price to the Ethereum contract...',
@@ -305,7 +305,7 @@ export default function Home() {
                         }}
                     >
                         <h3>Set ETH Price</h3>
-                        <p className={styles.code}>
+                        <p className="code">
                             Click to set the ETH price in the smart contract
                         </p>
                     </a>
@@ -330,7 +330,7 @@ export default function Home() {
                 </a>
             </div>
 
-            <footer className={styles.footer}>
+            <footer className="footer">
                 <a
                     href="https://proximity.dev"
                     target="_blank"
@@ -339,12 +339,12 @@ export default function Home() {
                     <img
                         src="/symbol.svg"
                         alt="Proximity Logo"
-                        className={styles.logo}
+                        className="logo"
                     />
                     <img
                         src="/wordmark_black.svg"
                         alt="Proximity Logo"
-                        className={styles.wordmark}
+                        className="wordmark"
                     />
                 </a>
             </footer>
