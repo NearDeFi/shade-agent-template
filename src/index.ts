@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import dotenv from 'dotenv';
+import { cors } from 'hono/cors';
 
 // Load environment variables from .env file (only needed for local development)
 if (process.env.NODE_ENV !== 'production') {
@@ -13,6 +14,9 @@ import agentAccount from './routes/agentAccount';
 import transaction from './routes/transaction';
 
 const app = new Hono();
+
+// Configure CORS to restrict access to the server
+app.use(cors());
 
 // Health check
 app.get('/', (c) => c.json({ message: 'App is running' }));

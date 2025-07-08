@@ -1,6 +1,5 @@
 import { contracts, chainAdapters } from "chainsig.js";
 import { createPublicClient, http } from "viem";
-import { Contract, JsonRpcProvider } from "ethers";
 
 export const ethRpcUrl = 'https://sepolia.drpc.org';
 export const ethContractAddress = '0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8';
@@ -47,24 +46,3 @@ export const Evm = new chainAdapters.evm.EVM({
     publicClient,
     contract: MPC_CONTRACT
 }) as any;
-
-const provider = new JsonRpcProvider(ethRpcUrl);
-const contract = new Contract(ethContractAddress, ethContractAbi, provider);
-
-export async function getContractPrice(): Promise<bigint> {
-  return await contract.getPrice();
-}
-
-export function convertToDecimal(bigIntValue: bigint, decimals: number, decimalPlaces: number = 6): string {
-  let strValue = bigIntValue.toString();
-  
-  if (strValue.length <= decimals) {
-    strValue = strValue.padStart(decimals + 1, '0');
-  }
-
-  const decimalPos = strValue.length - decimals;
-
-  const result = strValue.slice(0, decimalPos) + '.' + strValue.slice(decimalPos);
-
-  return parseFloat(result).toFixed(decimalPlaces);
-}
