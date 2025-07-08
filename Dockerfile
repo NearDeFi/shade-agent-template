@@ -39,13 +39,13 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Copy package files first for optimal caching
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.json ./
 
 # Install all dependencies
 RUN npm ci
 
-# Copy application files
-COPY . .
+# Copy source code
+COPY src/ ./src/
 
 # Set non-root user for security
 RUN chown -R node:node /app
@@ -59,7 +59,7 @@ RUN npm prune --production
 
 # Expose application port
 EXPOSE 3000
-ENV NODE_ENV="dev"
+ENV NODE_ENV="production"
 
 # Start command
 CMD ["npm", "start"]

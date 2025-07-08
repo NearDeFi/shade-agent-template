@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file (only needed for local development)
+if (process.env.NODE_ENV !== 'production') {
+    dotenv.config();
+}
 
 // Import routes
 import ethAccount from './routes/ethAccount';
