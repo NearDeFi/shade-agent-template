@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import dotenv from "dotenv";
 import { cors } from "hono/cors";
+import dotenv from "dotenv";
 
 // Load environment variables from .env file (only needed for local development)
 if (process.env.NODE_ENV !== "production") {

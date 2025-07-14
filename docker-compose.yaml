@@ -16,7 +16,7 @@ services:
     volumes:
       - /var/run/tappd.sock:/var/run/tappd.sock
     restart: always
-  shade-agent-api-test:
+  shade-agent-app:
     environment:
       NEAR_ACCOUNT_ID: ${NEAR_ACCOUNT_ID}
       NEAR_SEED_PHRASE: ${NEAR_SEED_PHRASE}
@@ -26,8 +26,8 @@ services:
       SHADE_AGENT_PORT: ${SHADE_AGENT_PORT}
     platform: linux/amd64 # Explicitly set for TDX
     # shade-agent-app-image
-    image: pivortex/my-app@sha256:e40b8fa487e907c2dcf4077985688a084f8e647d6e14507e6bf89d52443134b9
-    container_name: shade-agent-api-test
+    image: pivortex/my-app@sha256:a4454c0b0d0521d6ca7c7385942966fe7bf161c130b575a113a00f5d9aff0a26
+    container_name: shade-agent-app
     ports:
       - "3000:3000"
     volumes:

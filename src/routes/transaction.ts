@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { signWithAgent } from "@neardefi/shade-agent-js";
+import { requestSignature } from "@neardefi/shade-agent-js";
 import {
   ethContractAbi,
   ethContractAddress,
@@ -9,7 +9,7 @@ import {
 import { getEthereumPriceUSD } from "../utils/fetch-eth-price";
 import { Contract, JsonRpcProvider } from "ethers";
 import { utils } from "chainsig.js";
-const { toRSV } = utils.cryptography;
+const { toRSV, uint8ArrayToHex } = utils.cryptography;
 
 const app = new Hono();
 
@@ -34,7 +34,10 @@ app.get("/", async (c) => {
     );
 
     // Call the agent contract to get a signature for the payload
-    const signRes = await signWithAgent("ethereum-1", hashesToSign[0]);
+    const signRes = await requestSignature({
+      path: "ethereum-1",
+      payload: uint8ArrayToHex(hashesToSign[0]),
+    });
     console.log("signRes", signRes);
 
     // Reconstruct the signed transaction
@@ -63,16 +66,12 @@ async function getPricePayload(ethPrice: number, contractId: string) {
     contractId,
     "ethereum-1",
   );
-
   // Create a new JSON-RPC provider for the Ethereum network
   const provider = new JsonRpcProvider(ethRpcUrl);
-
   // Create a new contract interface for the Ethereum Oracle contract
   const contract = new Contract(ethContractAddress, ethContractAbi, provider);
-
   // Encode the function data for the updatePrice function
   const data = contract.interface.encodeFunctionData("updatePrice", [ethPrice]);
-  
   // Prepare the transaction for signing 
   const { transaction, hashesToSign } = await Evm.prepareTransactionForSigning({
     from: senderAddress,

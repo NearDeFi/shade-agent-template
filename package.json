@@ -4,18 +4,19 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "phala:test": "phala cvms create --name my-app --compose ./docker-compose.yaml --env-file ./.env.development.local",
-    "docker:test": "sudo docker build -t myapp . && sudo docker run -p 3000:3000 --env-file .env.development.local --rm -e PORT=3000 myapp",
+    "start": "node dist/index.js",
+    "docker:build": "sudo docker build --platform linux/amd64 -t pivortex/my-app:latest .",
+    "docker:build:no-cache": "sudo docker build --no-cache --platform linux/amd64 -t pivortex/my-app:latest .",
+    "docker:push": "sudo docker push pivortex/my-app",
     "docker:prune": "sudo docker system prune",
-    "docker:image": "sudo docker build --platform linux/amd64 -t pivortex/my-app:latest .",
-    "docker:push": "sudo docker push pivortex/my-app"
+    "phala:deploy": "phala cvms create --name my-app --vcpu 1 --compose ./docker-compose.yaml --env-file ./.env.development.local"
   },
   "dependencies": {
     "@hono/node-server": "^1.15.0",
-    "@neardefi/shade-agent-js": "^0.2.1",
+    "@neardefi/shade-agent-js": "../new-release/shade-agent-js",
+    "@near-js/tokens": "^2.2.2",
     "chainsig.js": "^1.1.9",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",

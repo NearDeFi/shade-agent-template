@@ -35,11 +35,13 @@ export const ethContractAbi = [
 const provider = new JsonRpcProvider(ethRpcUrl);
 const contract = new Contract(ethContractAddress, ethContractAbi, provider);
 
+// Function to get the price from the Ethereum contract
 export async function getContractPrice() {
   return await contract.getPrice();
 }
 
-export function convertToDecimal(balance, decimals, decimalPlaces = 6) {
+// Function to format account balances
+export function formatBalance(balance, decimals, decimalPlaces = 6) {
   let strValue = balance.toString();
 
   if (strValue.length <= decimals) {

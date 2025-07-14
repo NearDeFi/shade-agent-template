@@ -1,23 +1,23 @@
 import { Hono } from "hono";
-import { getAgentAccount, getBalance } from "@neardefi/shade-agent-js";
+import { agentAccountId, agent } from "@neardefi/shade-agent-js";
 
 const app = new Hono();
 
 app.get("/", async (c) => {
   try {
     // Get the agents account Id
-    const accountId = await getAgentAccount();
+    const accountId = await agentAccountId();
 
     // Get the balance of the agent account
-    const balance = await getBalance(accountId.workerAccountId);
-    
+    // const balance = await agent("getBalance");
+
     return c.json({
-      accountId: accountId.workerAccountId,
-      balance: balance.available,
+      accountId: accountId.accountId,
+      // balance: balance.available,
     });
   } catch (error) {
-    console.log("Error getting worker account:", error);
-    return c.json({ error: "Failed to get worker account " + error }, 500);
+    console.log("Error getting agent account:", error);
+    return c.json({ error: "Failed to get agent account " + error }, 500);
   }
 });
 

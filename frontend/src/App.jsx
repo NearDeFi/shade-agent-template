@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import "../styles/globals.css";
-import { getContractPrice, convertToDecimal } from "./ethereum";
+import { getContractPrice, formatBalance } from "./ethereum";
 import Overlay from "./Overlay";
 import { API_URL } from "./config";
 
@@ -41,11 +41,11 @@ export default function Home() {
         r.json(),
       );
       setAgentAddress(res.accountId);
-      const formattedBalance = convertToDecimal(res.balance, 24);
+      const formattedBalance = formatBalance(res.balance, 24);
       setAgentBalance(formattedBalance);
     } catch (error) {
-      console.log("Error getting worker account:", error);
-      setError("Failed to get worker account details");
+      console.log("Error getting agent account:", error);
+      setError("Failed to get agent account details");
     }
   };
 
@@ -56,7 +56,7 @@ export default function Home() {
         r.json(),
       );
       setEthAddress(res.senderAddress);
-      const formattedBalance = convertToDecimal(res.balance, 18);
+      const formattedBalance = formatBalance(res.balance, 18);
       setEthBalance(formattedBalance);
     } catch (error) {
       console.log("Error fetching ETH info:", error);
@@ -104,11 +104,11 @@ export default function Home() {
           <h2 className="subtitle">Powered by Shade Agents</h2>
         </div>
         <p>
-          This is a simple example of a verifiable price oracle for an ethereum
+          This is a simple example of a Verifiable Price Oracle for an Ethereum
           smart contract using Shade Agents.
         </p>
         <ol>
-          <li>Keep the worker account funded with testnet NEAR tokens</li>
+          <li>Keep the agent account funded with testnet NEAR tokens</li>
           <li>Fund the Ethereum Sepolia account (0.001 ETH will do)</li>
           <li>Send the ETH price to the Ethereum contract</li>
         </ol>
@@ -135,10 +135,10 @@ export default function Home() {
           </div>
         )}
 
-        {/* Display the worker account details */}
+        {/* Display the agent account details */}
         <div className="grid">
           <div className="card">
-            <h3>Fund Worker Account</h3>
+            <h3>Fund Agent Account</h3>
             <p>
               <br />
               {agentAddress?.length >= 24
