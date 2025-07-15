@@ -10,7 +10,7 @@ services:
       SHADE_AGENT_PORT: ${SHADE_AGENT_PORT}
     platform: linux/amd64 # Explicitly set for TDX
     # shade-agent-api-image
-    image: mattdlockyer/shade-agent-api@sha256:ec43db0f65f8e05937df2a5810931e6d9f491c5df34013b8f9838129c32a3fcf
+    image: mattdlockyer/shade-agent-api@sha256:0d2f72e5767a28995ef71cde2e2741fbdbd3cf0470778973cb5e4ae2392c8705
     container_name: shade-agent-api
     # DO NOT EXPOSE THE API PORT TO THE PUBLIC
     volumes:
@@ -18,15 +18,10 @@ services:
     restart: always
   shade-agent-app:
     environment:
-      NEAR_ACCOUNT_ID: ${NEAR_ACCOUNT_ID}
-      NEAR_SEED_PHRASE: ${NEAR_SEED_PHRASE}
-      API_CODEHASH: ${API_CODEHASH}
-      APP_CODEHASH: ${APP_CODEHASH}
       NEXT_PUBLIC_contractId: ${NEXT_PUBLIC_contractId}
-      SHADE_AGENT_PORT: ${SHADE_AGENT_PORT}
     platform: linux/amd64 # Explicitly set for TDX
     # shade-agent-app-image
-    image: pivortex/my-app@sha256:a4454c0b0d0521d6ca7c7385942966fe7bf161c130b575a113a00f5d9aff0a26
+    image: pivortex/my-app@sha256:4a09ae2cf5aee14eb3a1b8cd49313285c13d41c79300035d889db27d0ec46fb2
     container_name: shade-agent-app
     ports:
       - "3000:3000"

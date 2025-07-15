@@ -15,8 +15,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.15.0",
-    "@neardefi/shade-agent-js": "../new-release/shade-agent-js",
-    "@near-js/tokens": "^2.2.2",
+    "@neardefi/shade-agent-js": "./new-release/shade-agent-js",
     "chainsig.js": "^1.1.9",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",

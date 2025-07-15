@@ -9,11 +9,11 @@ app.get("/", async (c) => {
     const accountId = await agentAccountId();
 
     // Get the balance of the agent account
-    // const balance = await agent("getBalance");
+    const balance = await agent("getBalance");
 
     return c.json({
       accountId: accountId.accountId,
-      // balance: balance.available,
+      balance: balance.balance,
     });
   } catch (error) {
     console.log("Error getting agent account:", error);

@@ -1,0 +1,24 @@
+{
+    "nearRpcProviders": [
+      {
+        "connectionInfo": {
+          "url": "https://neart.lava.build:443"
+        },
+        "options": {
+          "retries": 5,
+          "backoff": 2,
+          "wait": 1500
+        }
+      },
+      {
+        "connectionInfo": {
+          "url": "https://test.rpc.fastnear.com"
+        },
+        "options": {
+          "retries": 3,
+          "backoff": 2,
+          "wait": 1000
+        }
+      }
+    ]
+  }
