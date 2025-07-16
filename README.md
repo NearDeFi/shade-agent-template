@@ -1,9 +1,9 @@
 # Shade Agent Template
 
 > [!WARNING]  
-> This technology has not yet undergone a formal audit. Use at your own risk. Please conduct your own due diligence and exercise caution before integrating or relying on it in production environments.
+> This technology has not yet undergone a formal audit. Please conduct your own due diligence and exercise caution before integrating or relying on it in production environments.
 
-This is a monorepo template for the Shade Agent Sadnbox with all the code and tools for deploying a Shade Agent on NEAR and Phala Cloud.
+This is a simple template for the Shade Agent Framework with all the code and tools required for deploying a Shade Agent on NEAR and Phala Cloud.
 
 This template is a simple verifiable ETH Price Oracle that pushes prices to an Ethereum contract.
 
@@ -26,12 +26,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releas
 
 # Install the Shade Agent CLI
 npm i -g @neardefi/shade-agent-cli
-
-# Install the Phala Cloud CLI
-npm install -g phala
 ```
-
-If you already have the NEAR CLI installed, check that you have the `most recent version`.
 
 - Create a `NEAR testnet account` and record the account name and `seed phrase`:
 
@@ -39,7 +34,13 @@ If you already have the NEAR CLI installed, check that you have the `most recent
 near account create-account sponsor-by-faucet-service <example-name.testnet> autogenerate-new-keypair print-to-terminal network-config testnet create
 ```
 
-- Install Docker for [Mac](https://docs.docker.com/desktop/setup/install/mac-install/) or [Linux](https://docs.docker.com/desktop/setup/install/linux/) and set up an account.
+replacing <example-name.testnet> with a unique name.
+
+- Set up docker if you have not already:
+
+Install Docker for [Mac](https://docs.docker.com/desktop/setup/install/mac-install/) or [Linux](https://docs.docker.com/desktop/setup/install/linux/) and set up an account.
+
+Log in to docker, `docker login` for Mac or `sudo docker login` for Linux.
 
 - Set up a free Phala Cloud account at https://cloud.phala.network/register then get an API key from https://cloud.phala.network/dashboard/tokens.
 
@@ -49,17 +50,11 @@ Phala Cloud is a service that offers secure and private hosting in a TEE using [
 
 ---
 
-## Local Development
+## Set up
 
 - Rename the `.env.development.local.example` file name to `.env.development.local` and configure your environment variables.
 
 - Start up Docker:
-
-For Linux
-
-```bash
-sudo systemctl start docker
-```
 
 For Mac
 
@@ -69,6 +64,22 @@ Simply open the Docker Desktop application or run:
 open -a Docker
 ```
 
+For Linux
+
+```bash
+sudo systemctl start docker
+```
+
+- Install dependencies 
+
+```bash
+npm i
+```
+
+---
+
+## Local development
+
 - Make sure the `NEXT_PUBLIC_contractId` prefix is set to `ac.proxy.` followed by your NEAR accountId.
 
 - In one terminal, run the Shade Agent CLI:
@@ -77,14 +88,15 @@ open -a Docker
 shade-agent-cli
 ```
 
-The CLI will prompt you to enter your `sudo password`.
+The CLI on Linux may prompt you to enter your `sudo password`.
 
-- In another terminal, start the frontend :
+- In another terminal, start your app:
 
 ```bash
-yarn
-yarn start
+npm run dev
 ```
+
+Your app will start on https://localhost:3000
 
 ---
 
@@ -98,10 +110,46 @@ yarn start
 shade-agent-cli
 ```
 
-The CLI will prompt you to enter your `sudo password`.
+The CLI on Linux may prompt you to enter your `sudo password`.
 
-This command will take about 5 minutes to complete.
+The last URL the CLI outputs is where your app is hosted.
 
-- Head over to your Phala Cloud dashboard https://cloud.phala.network/dashboard
+If your application is not working head over to your App on Phala Dashboard and review the logs.
 
-- Once the deployment is finished, click on your deployment, then head to the `network tab` and open the endpoint that is running on `port 3000`.
+## Interacting with the Agent
+
+You can interact with your agent via the APIs directly or via a lightweight frontend contained in this repo.
+
+### Direct
+
+For Phala deployments swap localhost:3000 for your deployment URL
+
+Get the Agent account and it's balance:
+
+```
+http://localhost:3000/api/agent-account
+```
+
+Get the derived Ethereum Sepolia account and it's balance (you will need to fund this):
+
+```
+http://localhost:3000/api/eth-account
+```
+
+Send a transaction through the Agent to update the price of Eth:
+
+```
+http://localhost:3000/api/transaction
+```
+
+### Frontend
+
+To run the frontend run:
+
+```bash
+cd frontend
+npm i
+npm run dev
+```
+
+To run the frontend with your Phala deployment change the `API_URL` to Phala URL in your [config.js](./frontend/src/config.js) file.
