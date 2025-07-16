@@ -1,17 +1,17 @@
-This project provides tools to interact with the public API endpoints of Coinbase and Binance. It is developed independently and is not affiliated with, endorsed by, or officially connected to either Coinbase or Binance.
+This project provides tools to interact with the public API endpoints of Coinbase and OKX. It is developed independently and is not affiliated with, endorsed by, or officially connected to either Coinbase or OKX.
 
 License
 
 This software is licensed under the Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0). You are free to use, modify, and distribute it under the terms of that license.
 
-However, use of this software in conjunction with Coinbase and Binance APIs is subject to additional third-party terms.
+However, use of this software in conjunction with Coinbase and OKX APIs is subject to additional third-party terms.
 
 ⚠️ API Usage Disclaimer
 
 This project interacts with the public APIs offered by:
 
 - Coinbase (https://www.coinbase.com/legal/developer-platform/terms-of-service)  
-- Binance (https://www.binance.com/en/terms) and its API Terms of Use (https://www.binance.com/en/support/faq/binance-api-terms-of-use-360002502072)
+- OKX (https://www.okx.com/en-gb/help/terms-of-service)
 
 By using this software, you acknowledge and agree that:
 
@@ -22,7 +22,7 @@ By using this software, you acknowledge and agree that:
   - Redistribution or resale
   - Automated scraping or excessive requests
   - Use of the APIs outside of intended or authorized scope
-- This project does not include or redistribute any official SDKs or proprietary code from Coinbase or Binance.
+- This project does not include or redistribute any official SDKs or proprietary code from Coinbase or OKX.
 - You must obtain and manage your own API keys and use them responsibly.
 
 This project does not store, collect, or transmit API credentials.
