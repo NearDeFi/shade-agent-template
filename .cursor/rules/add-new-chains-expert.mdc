@@ -1,0 +1,361 @@
+# Adding New Chains Expert Guide
+
+## Chain Investigation Methodology
+
+### Step 1: Research Chain Characteristics
+When adding a new chain, first investigate:
+
+1. **Blockchain Type**: Is it EVM-compatible, Solana-based, or other?
+2. **Consensus Mechanism**: Proof of Work, Proof of Stake, etc.
+3. **Native Token**: What's the native currency?
+4. **Smart Contract Support**: Solidity, Move, Rust, etc.
+5. **RPC Endpoints**: Available RPC URLs for testnet/mainnet
+6. **Chain IDs**: Network identifiers
+7. **Block Time**: Transaction confirmation speed
+8. **Gas Model**: Fee structure and gas limits
+
+### Step 2: Check chainsig.js Compatibility
+```javascript
+// Test chain adapter availability
+const { chainAdapters } = require('chainsig.js');
+console.log('Available adapters:', Object.keys(chainAdapters));
+
+// Test specific adapter creation
+const adapter = new chainAdapters.evm.EVM({...});
+console.log('Adapter methods:', Object.getOwnPropertyNames(adapter.constructor.prototype));
+```
+
+### Step 3: Test RPC Connectivity
+```javascript
+// Test RPC endpoint connectivity
+const response = await fetch(rpcUrl, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'eth_chainId',
+    params: [],
+    id: 1,
+  }),
+});
+```
+
+## Supported Chain Types
+
+### EVM-Compatible Chains
+- **Ethereum** (Sepolia, Mainnet)
+- **Polygon** (Mumbai, Mainnet)
+- **Arbitrum** (Sepolia, Mainnet)
+- **Base** (Sepolia, Mainnet)
+- **Optimism** (Sepolia, Mainnet)
+- **IoTeX** (Testnet, Mainnet)
+- **BSC** (Testnet, Mainnet)
+- **Avalanche** (Fuji, Mainnet)
+
+### Non-EVM Chains
+- **Solana** (Devnet, Mainnet)
+- **Aptos** (Devnet, Mainnet)
+- **Bitcoin** (Testnet, Mainnet)
+- **Cosmos** (Testnet, Mainnet)
+- **Sui** (Testnet, Mainnet)
+- **XRP** (Testnet, Mainnet)
+
+## Implementation Patterns
+
+### For EVM-Compatible Chains
+```typescript
+// 1. Create chain configuration
+export const chainRpcUrl = "https://chain-rpc-endpoint.com";
+export const chainContractAddress = "0x...";
+
+// 2. Create EVM adapter
+export const ChainAdapter = new chainAdapters.evm.EVM({
+  publicClient: createPublicClient({
+    transport: http(chainRpcUrl),
+  }),
+  contract: MPC_CONTRACT,
+}) as any;
+
+// 3. Create route handler
+app.get("/", async (c) => {
+  const { address } = await ChainAdapter.deriveAddressAndPublicKey(
+    contractId,
+    "chain-1", // Chain-specific path
+  );
+  // ... rest of implementation
+});
+```
+
+### For Non-EVM Chains
+```typescript
+// 1. Create chain-specific adapter
+const chainAdapter = new chainAdapters.chainType.ChainType({
+  rpcUrl: 'https://chain-rpc.com',
+  contract: MPC_CONTRACT,
+});
+
+// 2. Create chain-specific route handler
+app.get("/", async (c) => {
+  const { address } = await chainAdapter.deriveAddressAndPublicKey(
+    contractId,
+    "chain-1",
+  );
+  // ... chain-specific implementation
+});
+```
+
+## Key Files to Modify
+
+### Core Configuration Files
+- **[src/utils/ethereum.ts](mdc:src/utils/ethereum.ts)** - Main chain adapter setup
+- **[src/routes/ethAccount.ts](mdc:src/routes/ethAccount.ts)** - Account operations template
+- **[src/routes/transaction.ts](mdc:src/routes/transaction.ts)** - Transaction handling template
+- **[frontend/src/ethereum.js](mdc:frontend/src/ethereum.js)** - Frontend chain config template
+
+### New Chain Files to Create
+- `src/utils/{chainName}.ts` - Chain-specific configuration
+- `src/routes/{chainName}Account.ts` - Chain account operations
+- `src/routes/{chainName}Transaction.ts` - Chain transaction operations
+- `frontend/src/{chainName}.js` - Frontend chain integration
+
+## Path Parameter Patterns
+
+### EVM Chains
+- `ethereum-1`, `ethereum-mainnet`
+- `polygon-1`, `polygon-mainnet`
+- `arbitrum-1`, `arbitrum-mainnet`
+- `base-1`, `base-mainnet`
+- `optimism-1`, `optimism-mainnet`
+- `iotex-1`, `iotex-mainnet`
+- `bsc-1`, `bsc-mainnet`
+- `avalanche-1`, `avalanche-mainnet`
+
+### Non-EVM Chains
+- Solana: `solana-1`, `solana-mainnet`
+- Aptos: `aptos-1`, `aptos-mainnet`
+- Bitcoin: `bitcoin-1`, `bitcoin-mainnet`
+- Cosmos: `cosmos-1`, `cosmos-mainnet`
+- Sui: `sui-1`, `sui-mainnet`
+- XRP: `xrp-1`, `xrp-mainnet`
+
+## Common RPC URLs by Chain
+
+### EVM Testnets
+- Sepolia: `https://sepolia.drpc.org`
+- Polygon Mumbai: `https://polygon-mumbai.drpc.org`
+- Arbitrum Sepolia: `https://arbitrum-sepolia.drpc.org`
+- Base Sepolia: `https://base-sepolia.drpc.org`
+- Optimism Sepolia: `https://optimism-sepolia.drpc.org`
+- IoTeX Testnet: `https://babel-api.testnet.iotex.io`
+- BSC Testnet: `https://data-seed-prebsc-1-s1.binance.org:8545`
+- Avalanche Fuji: `https://api.avax-test.network/ext/bc/C/rpc`
+
+### Non-EVM Testnets
+- Solana Devnet: `https://api.devnet.solana.com`
+- Aptos Devnet: `https://fullnode.devnet.aptoslabs.com`
+- Bitcoin Testnet: `https://blockstream.info/testnet/api`
+- Cosmos Testnet: `https://rpc.testnet.cosmos.network`
+- Sui Testnet: `https://fullnode.testnet.sui.io`
+- XRP Testnet: `https://s.altnet.rippletest.net:51234`
+
+## Chain-Specific Requirements
+
+### EVM Chains
+1. **RPC URL**: Standard JSON-RPC endpoint
+2. **Contract Deployment**: Deploy price oracle contract
+3. **Gas Configuration**: Standard gas estimation
+4. **Path Parameters**: Usually `{chain}-1` format
+5. **Error Handling**: Standard EVM error patterns
+
+### Solana
+1. **RPC URL**: Solana RPC endpoint
+2. **Program Deployment**: Deploy Solana program
+3. **Transaction Format**: Solana-specific transaction structure
+4. **Path Parameters**: `solana-1`, `solana-mainnet`
+5. **Error Handling**: Solana-specific error handling
+
+### Aptos
+1. **RPC URL**: Aptos RPC endpoint
+2. **Module Deployment**: Deploy Move module
+3. **Transaction Format**: Aptos-specific transaction structure
+4. **Path Parameters**: `aptos-1`, `aptos-mainnet`
+5. **Error Handling**: Aptos-specific error handling
+
+## Testing Strategy
+
+### 1. Chain Adapter Testing
+```javascript
+// Test adapter creation
+const adapter = new chainAdapters.chainType.ChainType({...});
+console.log('Adapter created successfully');
+
+// Test adapter methods
+const methods = Object.getOwnPropertyNames(adapter.constructor.prototype);
+console.log('Available methods:', methods);
+```
+
+### 2. RPC Connectivity Testing
+```javascript
+// Test RPC connection
+const response = await fetch(rpcUrl, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'eth_chainId', // or chain-specific method
+    params: [],
+    id: 1,
+  }),
+});
+```
+
+### 3. End-to-End Testing
+```javascript
+// Test account derivation
+const { address } = await adapter.deriveAddressAndPublicKey(contractId, path);
+
+// Test balance checking
+const balance = await adapter.getBalance(address);
+
+// Test transaction preparation
+const { transaction, hashesToSign } = await adapter.prepareTransactionForSigning({...});
+```
+
+## Implementation Checklist
+
+### Pre-Implementation
+- [ ] Research chain characteristics
+- [ ] Verify chainsig.js support
+- [ ] Test RPC connectivity
+- [ ] Identify chain-specific requirements
+- [ ] Plan path parameters
+
+### Implementation
+- [ ] Create chain configuration file
+- [ ] Deploy smart contract/program
+- [ ] Create route handlers
+- [ ] Update main application
+- [ ] Add frontend support
+- [ ] Implement error handling
+
+### Post-Implementation
+- [ ] Test all functionality
+- [ ] Update documentation
+- [ ] Add environment variables
+- [ ] Create example usage
+- [ ] Update cursor rules
+
+## Error Handling Patterns
+
+### Chain Validation
+```typescript
+// Validate chain adapter exists
+if (!chainAdapters[chainType]) {
+  throw new Error(`Unsupported chain: ${chainType}`);
+}
+```
+
+### RPC Connection Testing
+```typescript
+// Test RPC connection before operations
+try {
+  const balance = await adapter.getBalance(address);
+  return true;
+} catch (error) {
+  console.error(`RPC connection failed: ${error.message}`);
+  return false;
+}
+```
+
+### Chain-Specific Error Handling
+```typescript
+try {
+  // Chain operations
+} catch (error) {
+  if (error.message.includes("insufficient funds")) {
+    // Handle gas/fee issues
+  } else if (error.message.includes("network error")) {
+    // Handle network connectivity issues
+  }
+  throw error;
+}
+```
+
+## Best Practices
+
+1. **Environment Variables**: Use env vars for chain selection
+2. **Adapter Factory**: Create adapter instances dynamically
+3. **Chain Validation**: Validate chain support before operations
+4. **Error Handling**: Implement chain-specific error handling
+5. **Testing**: Test all chains before deployment
+6. **Documentation**: Document chain-specific requirements
+7. **Fallbacks**: Implement fallback chains for reliability
+8. **Configuration**: Use configuration objects for easy switching
+
+## Example: Adding IoTeX
+
+### 1. Research IoTeX
+- EVM-compatible ✅
+- RPC: `https://babel-api.testnet.iotex.io`
+- Chain ID: 4690 (testnet), 4689 (mainnet)
+
+### 2. Test Compatibility
+```javascript
+// IoTeX uses EVM adapter
+const iotexAdapter = new chainAdapters.evm.EVM({...});
+```
+
+### 3. Create Configuration
+```typescript
+// src/utils/iotex.ts
+export const iotexRpcUrl = "https://babel-api.testnet.iotex.io";
+export const IoTeX = new chainAdapters.evm.EVM({...});
+```
+
+### 4. Create Routes
+```typescript
+// src/routes/iotexAccount.ts
+app.get("/", async (c) => {
+  const { address } = await IoTeX.deriveAddressAndPublicKey(contractId, "iotex-1");
+  // ... implementation
+});
+```
+
+### 5. Update Main App
+```typescript
+// src/index.ts
+import iotexAccount from "./routes/iotexAccount";
+app.route("/api/iotex-account", iotexAccount);
+```
+
+## Future Chain Considerations
+
+### Upcoming Chains to Consider
+- **Polygon zkEVM**: Layer 2 scaling
+- **zkSync Era**: Zero-knowledge scaling
+- **StarkNet**: Cairo-based scaling
+- **Polkadot**: Multi-chain ecosystem
+- **Cardano**: Haskell-based blockchain
+
+### Research Resources
+- Chain documentation websites
+- RPC provider documentation
+- Community forums and Discord
+- GitHub repositories
+- Official chain explorers
+
+## Migration Guide
+
+When adding a new chain:
+1. **Research** chain characteristics and compatibility
+2. **Test** RPC connectivity and adapter creation
+3. **Create** chain-specific configuration files
+4. **Deploy** smart contracts/programs
+5. **Implement** route handlers and frontend support
+6. **Test** end-to-end functionality
+7. **Document** chain-specific requirements
+8. **Update** cursor rules and documentation
+description:
+globs:
+alwaysApply: false
+---

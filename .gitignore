@@ -44,3 +44,4 @@ contract/target
 
 # new releases
 new-release/
+frontend/src/config.js

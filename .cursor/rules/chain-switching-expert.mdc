@@ -1,0 +1,207 @@
+# Chain Switching Expert Guide
+
+## Supported Chains Overview
+
+The Shade Agent template supports **7 blockchain networks** through `chainsig.js`:
+
+### EVM-Compatible Chains
+- **Ethereum** (Sepolia, Mainnet)
+- **Polygon** (Mumbai, Mainnet) 
+- **Arbitrum** (Sepolia, Mainnet)
+- **Base** (Sepolia, Mainnet)
+- **Optimism** (Sepolia, Mainnet)
+- **IoTeX** (Testnet, Mainnet)
+
+### Non-EVM Chains
+- **Solana** (Devnet, Mainnet)
+- **Aptos** (Devnet, Mainnet)
+- **Bitcoin** (Testnet, Mainnet)
+- **Cosmos** (Testnet, Mainnet)
+- **Sui** (Testnet, Mainnet)
+- **XRP** (Testnet, Mainnet)
+
+## Key Files for Chain Switching
+
+### Core Configuration
+- **[src/utils/ethereum.ts](mdc:src/utils/ethereum.ts)** - Main chain adapter setup
+- **[src/routes/ethAccount.ts](mdc:src/routes/ethAccount.ts)** - Account operations
+- **[src/routes/transaction.ts](mdc:src/routes/transaction.ts)** - Transaction handling
+- **[frontend/src/ethereum.js](mdc:frontend/src/ethereum.js)** - Frontend chain config
+
+### Current Configuration
+```typescript
+// Current Sepolia setup
+export const ethRpcUrl = "https://sepolia.drpc.org";
+export const ethContractAddress = "0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8";
+const MPC_CONTRACT = new contracts.ChainSignatureContract({
+  networkId: `testnet`,
+  contractId: `v1.signer-prod.testnet`,
+});
+```
+
+## Chain Adapter Methods
+
+### EVM Adapter (22 methods)
+Core methods: `deriveAddressAndPublicKey`, `getBalance`, `prepareTransactionForSigning`, `finalizeTransactionSigning`, `broadcastTx`
+
+### Solana Adapter (8 methods)  
+Core methods: `deriveAddressAndPublicKey`, `getBalance`, `prepareTransactionForSigning`, `finalizeTransactionSigning`, `broadcastTx`
+
+### Aptos Adapter (10 methods)
+Core methods: `deriveAddressAndPublicKey`, `getBalance`, `prepareTransactionForSigning`, `finalizeTransactionSigning`, `broadcastTx`
+
+## Path Parameters by Chain
+
+### EVM Paths
+- `ethereum-1` (current)
+- `ethereum-mainnet`
+- `polygon-1`
+- `arbitrum-1` 
+- `base-1`
+- `iotex-1`
+- `iotex-mainnet`
+
+### Non-EVM Paths
+- Solana: `solana-1`, `solana-mainnet`
+- Aptos: `aptos-1`, `aptos-mainnet`
+- Bitcoin: `bitcoin-1`, `bitcoin-mainnet`
+- Cosmos: `cosmos-1`, `cosmos-mainnet`
+- Sui: `sui-1`, `sui-mainnet`
+- XRP: `xrp-1`, `xrp-mainnet`
+
+## Chain Switching Implementation Patterns
+
+### 1. EVM Chain Switching
+```typescript
+// Update RPC URL and contract address
+export const ethRpcUrl = "https://polygon-mumbai.drpc.org";
+export const ethContractAddress = "NEW_CONTRACT_ADDRESS";
+
+// Path remains same for EVM chains
+const path = "ethereum-1"; // or specific chain path
+```
+
+### 2. Non-EVM Chain Switching
+```typescript
+// Create new adapter instance
+const solanaAdapter = new chainAdapters.solana.Solana({
+  rpcUrl: 'https://api.devnet.solana.com',
+  contract: MPC_CONTRACT,
+});
+
+// Update path parameter
+const path = "solana-1";
+```
+
+### 3. Multi-Chain Configuration
+```typescript
+const chainConfigs = {
+  sepolia: {
+    rpcUrl: "https://sepolia.drpc.org",
+    contractAddress: "0x...",
+    path: "ethereum-1"
+  },
+  polygon: {
+    rpcUrl: "https://polygon-mumbai.drpc.org", 
+    contractAddress: "0x...",
+    path: "polygon-1"
+  },
+  solana: {
+    rpcUrl: "https://api.devnet.solana.com",
+    contractAddress: "0x...",
+    path: "solana-1"
+  },
+  iotex: {
+    rpcUrl: "https://babel-api.testnet.iotex.io",
+    contractAddress: "0x...",
+    path: "iotex-1"
+  }
+};
+```
+
+## Required Changes for Chain Switching
+
+### For EVM Chains
+1. **Update RPC URL** in [src/utils/ethereum.ts](mdc:src/utils/ethereum.ts)
+2. **Deploy contract** on target chain
+3. **Update contract address**
+4. **Verify path parameter** (usually `ethereum-1` works for all EVM)
+5. **Update frontend config** in [frontend/src/ethereum.js](mdc:frontend/src/ethereum.js)
+
+### For Non-EVM Chains
+1. **Create new adapter** in [src/utils/ethereum.ts](mdc:src/utils/ethereum.ts)
+2. **Update route handlers** in [src/routes/](mdc:src/routes/) files
+3. **Deploy contracts** on target chain
+4. **Update path parameters** to chain-specific paths
+5. **Modify transaction logic** for chain-specific requirements
+
+## Common RPC URLs
+
+### EVM Testnets
+- Sepolia: `https://sepolia.drpc.org`
+- Polygon Mumbai: `https://polygon-mumbai.drpc.org`
+- Arbitrum Sepolia: `https://arbitrum-sepolia.drpc.org`
+- Base Sepolia: `https://base-sepolia.drpc.org`
+- Optimism Sepolia: `https://optimism-sepolia.drpc.org`
+- IoTeX Testnet: `https://babel-api.testnet.iotex.io`
+- IoTeX Mainnet: `https://babel-api.mainnet.iotex.io`
+
+### Non-EVM Testnets
+- Solana Devnet: `https://api.devnet.solana.com`
+- Aptos Devnet: `https://fullnode.devnet.aptoslabs.com`
+
+## Error Handling Patterns
+
+### Chain Validation
+```typescript
+// Validate chain adapter exists
+if (!chainAdapters[chainType]) {
+  throw new Error(`Unsupported chain: ${chainType}`);
+}
+```
+
+### RPC Connection Testing
+```typescript
+// Test RPC connection before operations
+try {
+  const balance = await adapter.getBalance(address);
+  return true;
+} catch (error) {
+  console.error(`RPC connection failed: ${error.message}`);
+  return false;
+}
+```
+
+## Best Practices
+
+1. **Environment Variables**: Use env vars for chain selection
+2. **Adapter Factory**: Create adapter instances dynamically
+3. **Chain Validation**: Validate chain support before operations
+4. **Error Handling**: Implement chain-specific error handling
+5. **Testing**: Test all chains before deployment
+6. **Documentation**: Document chain-specific requirements
+7. **Fallbacks**: Implement fallback chains for reliability
+
+## Testing Chain Switching
+
+Use the test files created:
+- `test-chain-adapters.js` - Verify adapter availability
+- `test-chain-switching.js` - Test multi-chain setup
+- `test-path-parameters.js` - Validate path patterns
+
+## Migration Checklist
+
+When switching chains:
+- [ ] Update RPC URL
+- [ ] Deploy new contract
+- [ ] Update contract address
+- [ ] Verify path parameters
+- [ ] Test adapter creation
+- [ ] Update frontend config
+- [ ] Test all operations
+- [ ] Update documentation
+- [ ] Test error handling
+description:
+globs:
+alwaysApply: false
+---
