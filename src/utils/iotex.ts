@@ -4,7 +4,13 @@ import { createPublicClient, http } from "viem";
 // IoTeX network configuration
 export const iotexRpcUrl = "https://babel-api.testnet.iotex.io"; // Testnet
 export const iotexMainnetRpcUrl = "https://babel-api.mainnet.iotex.io"; // Mainnet
-export const iotexContractAddress = "0x..."; // Deploy contract here
+
+// Import shared contract registry
+import { getContractAddress } from './contractRegistry';
+
+// Use shared contract addresses
+export const iotexContractAddress = getContractAddress('iotex', 'testnet');
+export const iotexMainnetContractAddress = getContractAddress('iotex', 'mainnet');
 
 export const iotexContractAbi = [
   {
