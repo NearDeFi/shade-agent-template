@@ -22,21 +22,16 @@ The Shade Agent template supports **7 blockchain networks** through `chainsig.js
 
 ## Contract Pattern Analysis
 
-Based on the [near-multichain](https://github.com/near-examples/near-multichain) example, the optimal pattern is:
+Based on the [near-multichain](https://github.com/near-examples/near-multichain) example, the current pattern is:
 
-### **EVM Networks: SHARED CONTRACT PATTERN** ✅
+### **EVM Networks: INDIVIDUAL CONTRACTS** ✅
 ```typescript
-// Centralized contract registry (recommended)
-export const EVM_CONTRACT_REGISTRY = {
-  ethereum: "0xFf3171733b73Cfd5A72ec28b9f2011Dc689378c6",
-  base: "0x2d5B67280267309D259054BB3214f74e42c8a98c",
-  polygon: "0x03a74694bD865437eb4f83c5ed61D22000A9f502",
-  arbitrum: "0x03a74694bD865437eb4f83c5ed61D22000A9f502",
-  iotex: "0xDEPLOYED_IOTEX_ADDRESS", // Deploy once
-};
+// Each chain has its own contract address
+export const ethContractAddress = "0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8"; // Sepolia
+export const iotexContractAddress = "0x..."; // Deploy IoTeX contract
 ```
 
-### **Non-EVM Networks: DEDICATED COMPONENT PATTERN** ✅
+### **Non-EVM Networks: DEDICATED COMPONENTS** ✅
 ```typescript
 // Individual component files for each non-EVM network
 // src/components/Solana.ts
@@ -96,13 +91,11 @@ Core methods: `deriveAddressAndPublicKey`, `getBalance`, `prepareTransactionForS
 
 ## Chain Switching Implementation Patterns
 
-### 1. EVM Chain Switching (SHARED PATTERN)
+### 1. EVM Chain Switching
 ```typescript
-// Use centralized contract registry
-import { getContractAddress } from './contractRegistry';
-
+// Update RPC URL and contract address
 export const ethRpcUrl = "https://polygon-mumbai.drpc.org";
-export const ethContractAddress = getContractAddress('polygon', 'testnet');
+export const ethContractAddress = "NEW_CONTRACT_ADDRESS";
 
 // Path remains same for EVM chains
 const path = "ethereum-1"; // or specific chain path
@@ -120,23 +113,22 @@ const solanaAdapter = new chainAdapters.solana.Solana({
 const path = "solana-1";
 ```
 
-### 3. Multi-Chain Configuration (RECOMMENDED)
+### 3. Multi-Chain Configuration
 ```typescript
-// Shared contract registry approach
 const chainConfigs = {
   sepolia: {
     rpcUrl: "https://sepolia.drpc.org",
-    contractAddress: getContractAddress('ethereum', 'testnet'),
+    contractAddress: "0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8",
     path: "ethereum-1"
   },
   polygon: {
     rpcUrl: "https://polygon-mumbai.drpc.org", 
-    contractAddress: getContractAddress('polygon', 'testnet'),
+    contractAddress: "0x...",
     path: "polygon-1"
   },
   iotex: {
     rpcUrl: "https://babel-api.testnet.iotex.io",
-    contractAddress: getContractAddress('iotex', 'testnet'),
+    contractAddress: "0x...",
     path: "iotex-1"
   }
 };
@@ -144,11 +136,12 @@ const chainConfigs = {
 
 ## Required Changes for Chain Switching
 
-### For EVM Chains (SHARED PATTERN)
+### For EVM Chains
 1. **Update RPC URL** in [src/utils/ethereum.ts](mdc:src/utils/ethereum.ts)
-2. **Use shared contract address** from registry
-3. **Verify path parameter** (usually `ethereum-1` works for all EVM)
-4. **Update frontend config** in [frontend/src/ethereum.js](mdc:frontend/src/ethereum.js)
+2. **Deploy contract** on target chain
+3. **Update contract address**
+4. **Verify path parameter** (usually `ethereum-1` works for all EVM)
+5. **Update frontend config** in [frontend/src/ethereum.js](mdc:frontend/src/ethereum.js)
 
 ### For Non-EVM Chains (DEDICATED PATTERN)
 1. **Create new adapter** in [src/utils/ethereum.ts](mdc:src/utils/ethereum.ts)
@@ -172,22 +165,20 @@ const chainConfigs = {
 - Solana Devnet: `https://api.devnet.solana.com`
 - Aptos Devnet: `https://fullnode.devnet.aptoslabs.com`
 
-## Shared Contract Pattern Benefits
+## IoTeX Integration Status
 
-### ✅ **For New Developers:**
-- **Zero deployment required**: Use shared contracts immediately
-- **Faster onboarding**: Start testing in minutes
-- **Consistent behavior**: Same contract across all instances
+### Current State:
+- ✅ **IoTeX adapter** implemented in `src/utils/iotex.ts`
+- ✅ **IoTeX routes** implemented in `src/routes/iotexAccount.ts` and `src/routes/iotexTransaction.ts`
+- ❌ **Contract deployment** needed (placeholder address)
+- ❌ **Integration** with near-multichain example
 
-### ✅ **For Advanced Developers:**
-- **Optional customization**: Deploy own contracts if needed
-- **Environment variables**: Override shared contracts easily
-- **Flexible configuration**: Choose between shared and custom
-
-### ✅ **For Repository Maintainers:**
-- **Centralized control**: Manage contract versions
-- **Easier updates**: Deploy once, update everywhere
-- **Better testing**: Consistent test environment
+### Next Steps:
+1. **Deploy IoTeX contract** (one-time, ~$5)
+2. **Update contract address** in `src/utils/iotex.ts`
+3. **Create IoTeX component** for near-multichain
+4. **Submit PR** to near-multichain repository
+5. **Test integration** with Phala deployment
 
 ## Error Handling Patterns
 
@@ -213,15 +204,13 @@ try {
 
 ## Best Practices
 
-1. **Shared Contracts**: Use centralized contract registry for EVM networks
-2. **Dedicated Components**: Create individual files for non-EVM networks
-3. **Environment Variables**: Use env vars for chain selection and overrides
-4. **Adapter Factory**: Create adapter instances dynamically
-5. **Chain Validation**: Validate chain support before operations
-6. **Error Handling**: Implement chain-specific error handling
-7. **Testing**: Test all chains before deployment
-8. **Documentation**: Document chain-specific requirements
-9. **Fallbacks**: Implement fallback chains for reliability
+1. **Environment Variables**: Use env vars for chain selection
+2. **Adapter Factory**: Create adapter instances dynamically
+3. **Chain Validation**: Validate chain support before operations
+4. **Error Handling**: Implement chain-specific error handling
+5. **Testing**: Test all chains before deployment
+6. **Documentation**: Document chain-specific requirements
+7. **Fallbacks**: Implement fallback chains for reliability
 
 ## Testing Chain Switching
 
@@ -234,7 +223,8 @@ Use the test files created:
 
 When switching chains:
 - [ ] Update RPC URL
-- [ ] Use shared contract address (EVM) or deploy dedicated (non-EVM)
+- [ ] Deploy new contract
+- [ ] Update contract address
 - [ ] Verify path parameters
 - [ ] Test adapter creation
 - [ ] Update frontend config
@@ -242,7 +232,7 @@ When switching chains:
 - [ ] Update documentation
 - [ ] Test error handling
 
-## IoTeX Implementation Status
+## IoTeX Integration for Cross-Chain Signatures
 
 ### Current State:
 - ✅ **IoTeX adapter** implemented in `src/utils/iotex.ts`
