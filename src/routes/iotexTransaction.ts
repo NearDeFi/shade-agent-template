@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import { requestSignature } from "@neardefi/shade-agent-js";
 import {
   iotexContractAddress,
-  getIoTeXAdapter,
-  getIoTeXPath,
+  iotexRpcUrl,
+  iotexContractAbi,
+  IoTeX,
 } from "../utils/iotex";
-import { ethContractAbi } from "../utils/ethereum";
 import { getEthereumPriceUSD } from "../utils/fetch-eth-price";
 import { Contract, JsonRpcProvider } from "ethers";
 import { utils } from "chainsig.js";
@@ -15,91 +15,100 @@ const app = new Hono();
 
 app.get("/", async (c) => {
   try {
-    const contractId = process.env.NEXT_PUBLIC_contractId;
-    const network = (c.req.query("network") as 'testnet' | 'mainnet') || 'testnet';
+    console.log("🚀 Starting IoTeX transaction");
     
+    const contractId = process.env.NEXT_PUBLIC_contractId;
     if (!contractId) {
+      console.log("❌ Contract ID not configured");
       return c.json({ error: "Contract ID not configured" }, 500);
     }
+    console.log("✅ Contract ID:", contractId);
 
-    // Get the ETH price (or IOTX price)
+    // Get the ETH price (reusing the same price feed)
+    console.log("📊 Fetching ETH price...");
     const ethPrice = await getEthereumPriceUSD();
     if (!ethPrice) {
+      console.log("❌ Failed to fetch ETH price");
       return c.json({ error: "Failed to fetch ETH price" }, 500);
     }
-
-    // Get the appropriate IoTeX adapter and path
-    const IoTeXAdapter = getIoTeXAdapter(network);
-    const iotexPath = getIoTeXPath(network);
+    console.log("✅ ETH price:", ethPrice);
 
     // Get the transaction and payload to sign
+    console.log("🔧 Preparing transaction for signing...");
     const { transaction, hashesToSign } = await getIoTeXPricePayload(
       ethPrice,
       contractId,
-      network,
     );
+    console.log("✅ Transaction prepared, hashes to sign:", hashesToSign.length);
 
     // Call the agent contract to get a signature for the payload
+    console.log("🖋️  Requesting signature from NEAR...");
     const signRes = await requestSignature({
-      path: iotexPath,
+      path: "iotex-1",
       payload: uint8ArrayToHex(hashesToSign[0]),
     });
-    console.log("signRes", signRes);
+    console.log("✅ Signature received:", signRes);
 
     // Reconstruct the signed transaction
-    const signedTransaction = IoTeXAdapter.finalizeTransactionSigning({
+    console.log("🔧 Finalizing transaction signing...");
+    const signedTransaction = IoTeX.finalizeTransactionSigning({
       transaction,
       rsvSignatures: [toRSV(signRes)],
     });
+    console.log("✅ Transaction signed");
 
     // Broadcast the signed transaction
-    const txHash = await IoTeXAdapter.broadcastTx(signedTransaction);
+    console.log("📡 Broadcasting transaction...");
+    const txHash = await IoTeX.broadcastTx(signedTransaction);
+    console.log("✅ Transaction broadcasted:", txHash.hash);
 
     return c.json({
       txHash: txHash.hash,
       newPrice: (ethPrice / 100).toFixed(2),
-      network,
-      chainId: network === 'testnet' ? 4690 : 4689
+      success: true,
     });
   } catch (error) {
-    console.error("Failed to send the IoTeX transaction:", error);
+    console.error("❌ IoTeX transaction failed at step:", error.message);
+    console.error("Full error:", error);
     return c.json({ 
       error: "Failed to send the IoTeX transaction",
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : "Unknown error"
     }, 500);
   }
 });
 
-async function getIoTeXPricePayload(ethPrice: number, contractId: string, network: 'testnet' | 'mainnet') {
-  // Get the appropriate IoTeX adapter and configuration
-  const IoTeXAdapter = getIoTeXAdapter(network);
-  const iotexConfig = network === 'testnet' 
-    ? { rpcUrl: "https://babel-api.testnet.iotex.io", contractAddress: iotexContractAddress }
-    : { rpcUrl: "https://babel-api.mainnet.iotex.io", contractAddress: iotexContractAddress };
+async function getIoTeXPricePayload(ethPrice: number, contractId: string) {
+  console.log("  📋 Getting IoTeX price payload...");
   
-  // Derive the IoTeX address
-  const { address: senderAddress } = await IoTeXAdapter.deriveAddressAndPublicKey(
+  // Derive the IoTeX address (exactly like Ethereum)
+  console.log("  🔑 Deriving IoTeX address...");
+  const { address: senderAddress } = await IoTeX.deriveAddressAndPublicKey(
     contractId,
-    network === 'testnet' ? "iotex-1" : "iotex-mainnet",
+    "iotex-1",
   );
+  console.log("  ✅ Sender address:", senderAddress);
   
-  // Create a new JSON-RPC provider for IoTeX
-  const provider = new JsonRpcProvider(iotexConfig.rpcUrl);
+  // Create a new JSON-RPC provider for the IoTeX network
+  const provider = new JsonRpcProvider(iotexRpcUrl);
   
   // Create a new contract interface for the IoTeX Oracle contract
-  const contract = new Contract(iotexConfig.contractAddress, ethContractAbi, provider);
+  const contract = new Contract(iotexContractAddress, iotexContractAbi, provider);
   
   // Encode the function data for the updatePrice function
+  console.log("  📝 Encoding function data...");
   const data = contract.interface.encodeFunctionData("updatePrice", [ethPrice]);
+  console.log("  ✅ Function data:", data);
   
-  // Prepare the transaction for signing 
-  const { transaction, hashesToSign } = await IoTeXAdapter.prepareTransactionForSigning({
+  // Prepare the transaction for signing (exactly like Ethereum)
+  console.log("  🔧 Preparing transaction for signing...");
+  const result = await IoTeX.prepareTransactionForSigning({
     from: senderAddress,
-    to: iotexConfig.contractAddress,
+    to: iotexContractAddress,
     data,
   });
+  console.log("  ✅ Transaction preparation successful");
 
-  return { transaction, hashesToSign };
+  return result;
 }
 
 export default app; 
