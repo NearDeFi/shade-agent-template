@@ -80,7 +80,7 @@ npm i
 
 ## Local development
 
-- Make sure the `NEXT_PUBLIC_contractId` prefix is set to `ac.proxy.` followed by your NEAR accountId.
+- Make sure the `NEXT_PUBLIC_contractId` prefix is set to `ac-proxy.` followed by your NEAR accountId.
 
 - In one terminal, run the Shade Agent CLI:
 
@@ -102,7 +102,7 @@ Your app will start on https://localhost:3000
 
 ## TEE Deployment
 
-- Change the `NEXT_PUBLIC_contractId` prefix to `ac.sandbox.` followed by your NEAR accountId.
+- Change the `NEXT_PUBLIC_contractId` prefix to `ac-sandbox.` followed by your NEAR accountId.
 
 - Run the Shade Agent CLI
 
