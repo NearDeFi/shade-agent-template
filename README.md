@@ -96,7 +96,7 @@ The CLI on Linux may prompt you to enter your `sudo password`.
 npm run dev
 ```
 
-Your app will start on https://localhost:3000
+Your app will start on http://localhost:3000
 
 ---
 
@@ -122,24 +122,24 @@ You can interact with your agent via the APIs directly or via a lightweight fron
 
 ### Direct
 
-For Phala deployments swap localhost:3000 for your deployment URL
+For Phala deployments swap the base URL for your deployment URL
 
 Get the Agent account and it's balance:
 
 ```
-https://localhost:3000/api/agent-account
+http://localhost:3000/api/agent-account
 ```
 
 Get the derived Ethereum Sepolia account and it's balance (you will need to fund this):
 
 ```
-https://localhost:3000/api/eth-account
+http://localhost:3000/api/eth-account
 ```
 
 Send a transaction through the Agent to update the price of Eth:
 
 ```
-https://localhost:3000/api/transaction
+http://localhost:3000/api/transaction
 ```
 
 ### Frontend
