@@ -1,4 +1,4 @@
-export const API_URL = "https://cca7e0785f269eaec85d26d9b9b0a69b69cad9b7-3000.dstack-pha-prod8.phala.network";
+export const API_URL = "https://cca7e0785f269eaec85d26d9b9b0a69b69cad9b7-3000.dstack-pha-prod7.phala.network";
 
 // For local development
 // export const API_URL = "http://localhost:3000";
