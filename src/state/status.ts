@@ -13,6 +13,8 @@ export type IntentStatus = {
   expectedAmount?: string;
   txId?: string;
   bridgeTxId?: string;
+  /** Transaction ID for refund of intermediate tokens (if swap failed after bridge) */
+  refundTxId?: string;
   error?: string;
   /** Store the full intent data for re-processing after intents completes */
   intentData?: ValidatedIntent;

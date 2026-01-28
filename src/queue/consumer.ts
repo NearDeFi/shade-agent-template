@@ -5,6 +5,7 @@ import { validateIntent } from "./validation";
 import { config } from "../config";
 import { flowRegistry, createFlowContext } from "../flows";
 import { emitFlowMetrics, categorizeError } from "../flows/metrics";
+import { refundSolanaTokensToUser, refundNearTokensToUser } from "../utils/refund";
 
 /**
  * Starts the queue consumer with parallel processing support.
@@ -104,9 +105,16 @@ async function processIntentWithRetry(
         err,
       );
       if (isLast) {
+        // Attempt to refund intermediate tokens to the user before marking as failed
+        const refundResult = await attemptRefund(intent);
+
         await setStatus(intent.intentId, {
           state: "failed",
           error: (err as Error).message || "unknown error",
+          ...(refundResult && {
+            refundTxId: refundResult.txId,
+            detail: `Refund sent: ${refundResult.amount} to ${intent.userDestination}`,
+          }),
         });
         await queue.moveToDeadLetter(raw);
         return;
@@ -122,6 +130,45 @@ async function processIntentWithRetry(
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Attempts to refund intermediate tokens to the user after all retry attempts
+ * have been exhausted. Only applicable for chained cross-chain swaps where the
+ * bridge leg completed (intentsCompleted) but the destination swap failed.
+ */
+async function attemptRefund(
+  intent: ValidatedIntent,
+): Promise<{ txId: string; amount: string } | null> {
+  if (!intent.intermediateAsset || !intent.userDestination) return null;
+
+  // Only refund if the bridge leg already completed — otherwise Defuse handles the refund
+  if (!(intent.metadata as any)?.intentsCompleted) return null;
+
+  try {
+    if (intent.destinationChain === "solana") {
+      return await refundSolanaTokensToUser(
+        intent.intermediateAsset,
+        intent.userDestination,
+        console,
+        config.dryRunSwaps,
+      );
+    }
+    if (intent.destinationChain === "near") {
+      return await refundNearTokensToUser(
+        intent.intermediateAsset,
+        intent.userDestination,
+        console,
+        config.dryRunSwaps,
+      );
+    }
+  } catch (refundErr) {
+    console.error(
+      `[consumer] Refund attempt failed for ${intent.intentId}:`,
+      refundErr,
+    );
+  }
+  return null;
 }
 
 /**

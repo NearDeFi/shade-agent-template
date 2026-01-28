@@ -21,7 +21,7 @@
     "@hono/swagger-ui": "^0.5.3",
     "@kamino-finance/klend-sdk": "^7.3.1",
     "@modelcontextprotocol/sdk": "^1.25.1",
-    "@neardefi/shade-agent-js": "^1.0.0",
+    "@neardefi/shade-agent-js": "file:./vendor/shade-agent-js",
     "@ref-finance/ref-sdk": "^1.4.8",
     "@scure/base": "^2.0.0",
     "@solana/web3.js": "^1.93.0",

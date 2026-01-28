@@ -9,6 +9,8 @@ import {
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import { extractSolanaMintAddress } from "../constants";
 import { ValidatedIntent } from "../queue/types";
@@ -97,7 +99,20 @@ async function buildJupiterSwapTransaction(
 
   const userWallet = new PublicKey(intent.userDestination);
   const outputMintPubkey = new PublicKey(outputMint);
-  const userAta = getAssociatedTokenAddressSync(outputMintPubkey, userWallet);
+
+  // Detect whether the output mint is Token-2022 or legacy SPL Token
+  const connection = getSolanaConnection();
+  const mintAccountInfo = await connection.getAccountInfo(outputMintPubkey);
+  const tokenProgramId = mintAccountInfo?.owner.equals(TOKEN_2022_PROGRAM_ID)
+    ? TOKEN_2022_PROGRAM_ID
+    : TOKEN_PROGRAM_ID;
+
+  const userAta = getAssociatedTokenAddressSync(
+    outputMintPubkey,
+    userWallet,
+    false,
+    tokenProgramId,
+  );
 
   logger.debug(`Jupiter swap request`, {
     inputMint,
@@ -106,6 +121,7 @@ async function buildJupiterSwapTransaction(
     agentPublicKey: agentPublicKey.toBase58(),
     userDestination: intent.userDestination,
     userAta: userAta.toBase58(),
+    tokenProgram: tokenProgramId.toBase58(),
     intentId: intent.intentId,
   });
 
@@ -162,6 +178,7 @@ async function buildJupiterSwapTransaction(
     userAta,
     userWallet,
     outputMintPubkey,
+    tokenProgramId,
   );
   instructions.push(createAtaIx);
 
@@ -185,7 +202,6 @@ async function buildJupiterSwapTransaction(
     }
   }
 
-  const connection = getSolanaConnection();
   const addressLookupTableAccounts = await getAddressLookupTableAccounts(
     connection,
     swapInstructions.addressLookupTableAddresses || [],
