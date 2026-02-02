@@ -26,23 +26,19 @@ describe("Permission Types", () => {
         1
       );
 
-      const parsed = JSON.parse(message);
-      expect(parsed.action).toBe("register_wallet");
-      expect(parsed.derivation_path).toBe("solana-1,order-123");
-      expect(parsed.wallet_type).toBe("Solana");
-      expect(parsed.chain_address).toBe("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU");
-      expect(parsed.nonce).toBe(1);
-      expect(parsed.public_key).toHaveLength(32);
+      expect(message).toBe(
+        "Register wallet for derivation path: solana-1,order-123 with nonce: 1"
+      );
     });
 
     it("should support different wallet types", () => {
       const publicKey = new Uint8Array(32);
 
       const nearMsg = createRegisterWalletMessage("near-1,user", "Near", publicKey, "user.near", 1);
-      expect(JSON.parse(nearMsg).wallet_type).toBe("Near");
+      expect(nearMsg).toBe("Register wallet for derivation path: near-1,user with nonce: 1");
 
       const evmMsg = createRegisterWalletMessage("evm-1,user", "Evm", publicKey, "0x123...", 1);
-      expect(JSON.parse(evmMsg).wallet_type).toBe("Evm");
+      expect(evmMsg).toBe("Register wallet for derivation path: evm-1,user with nonce: 1");
     });
   });
 

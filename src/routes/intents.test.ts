@@ -9,8 +9,33 @@ const { enqueueIntentMock, setStatusMock } = vi.hoisted(() => ({
   setStatusMock: vi.fn(),
 }));
 
+const {
+  isNearSignatureMock,
+  createIntentSigningMessageMock,
+  validateIntentSignatureMock,
+  createSolanaIntentSigningMessageMock,
+  validateSolanaIntentSignatureMock,
+} = vi.hoisted(() => ({
+  isNearSignatureMock: vi.fn(),
+  createIntentSigningMessageMock: vi.fn(),
+  validateIntentSignatureMock: vi.fn(),
+  createSolanaIntentSigningMessageMock: vi.fn(),
+  validateSolanaIntentSignatureMock: vi.fn(),
+}));
+
 const { getQuoteMock } = vi.hoisted(() => ({
   getQuoteMock: vi.fn(),
+}));
+
+vi.mock("../utils/nearSignature", () => ({
+  isNearSignature: isNearSignatureMock,
+  createIntentSigningMessage: createIntentSigningMessageMock,
+  validateIntentSignature: validateIntentSignatureMock,
+}));
+
+vi.mock("../utils/solanaSignature", () => ({
+  createSolanaIntentSigningMessage: createSolanaIntentSigningMessageMock,
+  validateSolanaIntentSignature: validateSolanaIntentSignatureMock,
 }));
 
 vi.mock("../queue/redis", () => ({
@@ -53,6 +78,13 @@ describe("intents route", () => {
     enqueueIntentMock.mockReset();
     setStatusMock.mockReset();
     config.enableQueue = true;
+    isNearSignatureMock.mockReset();
+    createIntentSigningMessageMock.mockReset();
+    validateIntentSignatureMock.mockReset();
+    createSolanaIntentSigningMessageMock.mockReset();
+    validateSolanaIntentSignatureMock.mockReset();
+    createIntentSigningMessageMock.mockReturnValue("intent-hash");
+    createSolanaIntentSigningMessageMock.mockReturnValue("intent-hash");
   });
 
   it("accepts a valid intent with deposit proof and enqueues", async () => {
@@ -110,6 +142,94 @@ describe("intents route", () => {
     });
 
     expect(res.status).toBe(503);
+    expect(enqueueIntentMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects NEAR signature when nearPublicKey is missing", async () => {
+    isNearSignatureMock.mockReturnValue(true);
+
+    const res = await app.request("/api/intents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...baseIntent,
+        originTxHash: undefined,
+        intentsDepositAddress: undefined,
+        userSignature: {
+          type: "near",
+          message: "msg",
+          signature: "sig",
+          publicKey: "ed25519:abc",
+          nonce: Buffer.alloc(32).toString("base64"),
+          recipient: "receiver",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("nearPublicKey");
+    expect(enqueueIntentMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects NEAR signature when message does not match intent", async () => {
+    isNearSignatureMock.mockReturnValue(true);
+    validateIntentSignatureMock.mockReturnValue({
+      isValid: false,
+      error: "Message mismatch",
+    });
+
+    const res = await app.request("/api/intents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...baseIntent,
+        originTxHash: undefined,
+        intentsDepositAddress: undefined,
+        nearPublicKey: "ed25519:abc",
+        userSignature: {
+          type: "near",
+          message: "wrong",
+          signature: "sig",
+          publicKey: "ed25519:abc",
+          nonce: Buffer.alloc(32).toString("base64"),
+          recipient: "receiver",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("Invalid userSignature");
+    expect(enqueueIntentMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects Solana signature when address does not match userDestination", async () => {
+    isNearSignatureMock.mockReturnValue(false);
+    validateSolanaIntentSignatureMock.mockReturnValue({
+      isValid: false,
+      error: "Address mismatch",
+    });
+
+    const res = await app.request("/api/intents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...baseIntent,
+        originTxHash: undefined,
+        intentsDepositAddress: undefined,
+        userSignature: {
+          type: "solana",
+          message: "msg",
+          signature: "sig",
+          publicKey: "pubkey",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("Invalid userSignature");
     expect(enqueueIntentMock).not.toHaveBeenCalled();
   });
 });

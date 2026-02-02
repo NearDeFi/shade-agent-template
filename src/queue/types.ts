@@ -69,6 +69,58 @@ export interface NearSwapMetadata extends Record<string, unknown> {
   tokenOut: string;
 }
 
+export interface EvmSwapMetadata extends Record<string, unknown> {
+  action: "evm-swap";
+}
+
+export interface AaveDepositMetadata extends Record<string, unknown> {
+  action: "aave-deposit";
+}
+
+export interface AaveWithdrawMetadata extends Record<string, unknown> {
+  action: "aave-withdraw";
+  /** EVM token address of the underlying asset to withdraw */
+  underlyingAsset: string;
+  /** Optional: bridge withdrawn tokens back to another chain via intents */
+  bridgeBack?: {
+    destinationChain: string;
+    destinationAddress: string;
+    destinationAsset: string;
+    slippageTolerance?: number;
+  };
+}
+
+export interface MorphoDepositMetadata extends Record<string, unknown> {
+  action: "morpho-deposit";
+  /** bytes32 market identifier */
+  marketId: string;
+  loanToken: string;
+  collateralToken: string;
+  oracle: string;
+  irm: string;
+  /** uint256 as string */
+  lltv: string;
+}
+
+export interface MorphoWithdrawMetadata extends Record<string, unknown> {
+  action: "morpho-withdraw";
+  /** bytes32 market identifier */
+  marketId: string;
+  loanToken: string;
+  collateralToken: string;
+  oracle: string;
+  irm: string;
+  /** uint256 as string */
+  lltv: string;
+  /** Optional: bridge withdrawn tokens back to another chain via intents */
+  bridgeBack?: {
+    destinationChain: string;
+    destinationAddress: string;
+    destinationAsset: string;
+    slippageTolerance?: number;
+  };
+}
+
 // ─── Conditional Order Types ─────────────────────────────────────────────────
 
 export type OrderType = "limit" | "stop-loss" | "take-profit";
@@ -123,12 +175,57 @@ export interface OrderCancelMetadata extends Record<string, unknown> {
   refundFunds?: boolean;
 }
 
+export interface SolBridgeOutMetadata extends Record<string, unknown> {
+  action: "sol-bridge-out";
+  /** User's Solana wallet (Jupiter TX signer) */
+  userSourceAddress: string;
+  /** Confirmed Jupiter swap TX hash */
+  userTxHash: string;
+  /** Whether the user's Jupiter TX has been confirmed on-chain */
+  userTxConfirmed: boolean;
+  /** Destination chain to bridge SOL to (e.g., "near", "ethereum") */
+  destinationChain: string;
+  /** User's address on the destination chain */
+  destinationAddress: string;
+  /** Defuse asset ID for the destination asset */
+  destinationAsset: string;
+  /** Optional slippage tolerance in basis points */
+  slippageTolerance?: number;
+}
+
+export interface NearBridgeOutMetadata extends Record<string, unknown> {
+  action: "near-bridge-out";
+  /** User's NEAR wallet address */
+  userNearAddress: string;
+  /** Confirmed ft_transfer TX hash */
+  userTxHash: string;
+  /** Whether the user's ft_transfer TX has been confirmed on-chain */
+  userTxConfirmed: boolean;
+  /** NEP-141 token contract (e.g., "usdt.tether-token.near") */
+  tokenId: string;
+  /** Destination chain to bridge to (e.g., "ethereum", "solana") */
+  destinationChain: string;
+  /** User's address on the destination chain */
+  destinationAddress: string;
+  /** Defuse asset ID for the destination asset */
+  destinationAsset: string;
+  /** Optional slippage tolerance in basis points */
+  slippageTolerance?: number;
+}
+
 export type IntentMetadata =
   | KaminoDepositMetadata
   | KaminoWithdrawMetadata
   | BurrowDepositMetadata
   | BurrowWithdrawMetadata
   | NearSwapMetadata
+  | EvmSwapMetadata
+  | AaveDepositMetadata
+  | AaveWithdrawMetadata
+  | MorphoDepositMetadata
+  | MorphoWithdrawMetadata
+  | SolBridgeOutMetadata
+  | NearBridgeOutMetadata
   | OrderCreateMetadata
   | OrderExecuteMetadata
   | OrderCancelMetadata

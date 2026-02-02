@@ -67,7 +67,7 @@ const burrowDepositFlow: FlowDefinition<BurrowDepositMetadata> = {
       return result;
     }
 
-    const depositAmount = intent.sourceAmount;
+    const depositAmount = intent.intermediateAmount || intent.sourceAmount;
     let intentsDepositAddress: string | undefined;
 
     // Derive the user's NEAR agent account

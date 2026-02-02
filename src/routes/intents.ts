@@ -2,18 +2,54 @@ import { Hono } from "hono";
 import { RedisQueueClient } from "../queue/redis";
 import { IntentMessage, IntentChain } from "../queue/types";
 import { validateIntent } from "../queue/validation";
-import { setStatus } from "../state/status";
+import { setStatus, getStatus } from "../state/status";
 import { config } from "../config";
 import { fetchWithRetry } from "../utils/http";
-import { SOL_NATIVE_MINT, extractSolanaMintAddress } from "../constants";
+import {
+  SOL_NATIVE_MINT,
+  WRAP_NEAR_CONTRACT,
+  extractSolanaMintAddress,
+  extractEvmTokenAddress,
+  ETH_NATIVE_TOKEN,
+} from "../constants";
 import { getSolDefuseAssetId, getDefuseAssetId } from "../utils/tokenMappings";
-import { deriveAgentPublicKey } from "../utils/solana";
+import {
+  detectEvmChainFromAsset,
+  deriveEvmAgentAddress,
+  EVM_CHAIN_CONFIGS,
+  EVM_SWAP_CHAINS,
+  EvmChainName,
+} from "../utils/evmChains";
+import { deriveAgentPublicKey, getSolanaConnection } from "../utils/solana";
 import { deriveNearImplicitAccount, NEAR_DEFAULT_PATH } from "../utils/chainSignature";
 import { ensureImplicitAccountExists } from "../utils/nearMetaTx";
 import { JsonRpcProvider } from "@near-js/providers";
-import { verifyNearSignature, isNearSignature } from "../utils/nearSignature";
-import { verifySolanaSignature } from "../utils/solanaSignature";
+import {
+  isNearSignature,
+  createIntentSigningMessage,
+  validateIntentSignature,
+} from "../utils/nearSignature";
+import {
+  createSolanaIntentSigningMessage,
+  validateSolanaIntentSignature,
+} from "../utils/solanaSignature";
 import { UserSignature } from "../queue/types";
+import {
+  deriveNearAgentAccount,
+  ensureNearAccountFunded,
+  getNearTransactionStatus,
+} from "../utils/near";
+import {
+  PublicKey,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  NATIVE_MINT,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import { deserializeInstruction, getAddressLookupTableAccounts } from "../flows/solSwap";
 import {
   OneClickService,
   OpenAPI,
@@ -47,6 +83,52 @@ type QuoteRequestBody = QuoteRequest & {
       slippageTolerance?: number;
     };
   };
+  // Aave V3 fields
+  aaveDeposit?: boolean;
+  aaveWithdraw?: {
+    underlyingAsset: string;
+    bridgeBack?: {
+      destinationChain: string;
+      destinationAddress: string;
+      destinationAsset: string;
+      slippageTolerance?: number;
+    };
+  };
+  // Morpho Blue fields
+  morphoDeposit?: {
+    marketId: string;
+    loanToken: string;
+    collateralToken: string;
+    oracle: string;
+    irm: string;
+    lltv: string;
+  };
+  morphoWithdraw?: {
+    marketId: string;
+    loanToken: string;
+    collateralToken: string;
+    oracle: string;
+    irm: string;
+    lltv: string;
+    bridgeBack?: {
+      destinationChain: string;
+      destinationAddress: string;
+      destinationAsset: string;
+      slippageTolerance?: number;
+    };
+  };
+  // Sell flow fields: user sells a Solana token, agent bridges SOL out
+  /** User's Solana wallet address (signer of the Jupiter sell TX) */
+  userSourceAddress?: string;
+  /** Destination chain for the sell output (e.g., "near", "ethereum") */
+  sellDestinationChain?: string;
+  /** User's address on the destination chain */
+  sellDestinationAddress?: string;
+  /** Defuse asset ID for the destination asset */
+  sellDestinationAsset?: string;
+  // NEAR sell flow fields: user sells a NEAR token, agent bridges wNEAR out
+  /** User's NEAR wallet address (signals NEAR sell flow) */
+  userNearAddress?: string;
 };
 
 interface IntentsQuoteResponse {
@@ -96,33 +178,66 @@ app.post("/", async (c) => {
     }, 403);
   }
 
-  // If signature provided, verify it's valid (supports both NEAR and Solana signatures)
+  // If signature provided, verify it's valid AND bound to this intent
   if (hasSignatureProof && payload.userSignature) {
-    let isValidSignature = false;
     let signatureType = "unknown";
 
-    // Check if it's a NEAR signature (has nonce and recipient) or Solana signature
     if (isNearSignature(payload.userSignature)) {
       signatureType = "near";
-      isValidSignature = verifyNearSignature(payload.userSignature);
+
+      if (!payload.nearPublicKey) {
+        return c.json(
+          { error: "nearPublicKey is required for NEAR signatures" },
+          400,
+        );
+      }
+
+      const expectedMessage = createIntentSigningMessage(payload);
+      const result = validateIntentSignature(
+        payload.userSignature,
+        payload.nearPublicKey,
+        expectedMessage,
+      );
+
+      if (!result.isValid) {
+        console.warn("[intents] Rejected intent with invalid NEAR signature", {
+          intentId: payload.intentId,
+          publicKey: payload.userSignature.publicKey,
+          error: result.error,
+        });
+        return c.json({ error: "Invalid userSignature" }, 403);
+      }
     } else {
-      // Assume Solana signature (no nonce/recipient)
       signatureType = "solana";
-      isValidSignature = verifySolanaSignature({
-        message: payload.userSignature.message,
-        signature: payload.userSignature.signature,
-        publicKey: payload.userSignature.publicKey,
-      });
+
+      if (!payload.userDestination) {
+        return c.json(
+          { error: "userDestination is required for Solana signatures" },
+          400,
+        );
+      }
+
+      const expectedMessage = createSolanaIntentSigningMessage(payload);
+      const result = validateSolanaIntentSignature(
+        {
+          message: payload.userSignature.message,
+          signature: payload.userSignature.signature,
+          publicKey: payload.userSignature.publicKey,
+        },
+        payload.userDestination,
+        expectedMessage,
+      );
+
+      if (!result.isValid) {
+        console.warn("[intents] Rejected intent with invalid Solana signature", {
+          intentId: payload.intentId,
+          publicKey: payload.userSignature.publicKey,
+          error: result.error,
+        });
+        return c.json({ error: "Invalid userSignature" }, 403);
+      }
     }
 
-    if (!isValidSignature) {
-      console.warn("[intents] Rejected intent with invalid signature", {
-        intentId: payload.intentId,
-        publicKey: payload.userSignature.publicKey,
-        signatureType,
-      });
-      return c.json({ error: "Invalid userSignature" }, 403);
-    }
     console.info("[intents] Signature verified for intent", {
       intentId: payload.intentId,
       publicKey: payload.userSignature.publicKey,
@@ -182,7 +297,7 @@ app.post("/quote", async (c) => {
   const isDryRun = payload.dry !== false;
 
   // Extract custom fields that should NOT be sent to the Defuse API
-  const { sourceChain, userDestination, metadata, kaminoDeposit, burrowDeposit, burrowWithdraw, ...defuseQuoteFields } = payload;
+  const { sourceChain, userDestination, metadata, kaminoDeposit, burrowDeposit, burrowWithdraw, aaveDeposit, aaveWithdraw, morphoDeposit, morphoWithdraw, userSourceAddress, sellDestinationChain, sellDestinationAddress, sellDestinationAsset, userNearAddress, ...defuseQuoteFields } = payload;
 
   if (config.intentsQuoteUrl) {
     OpenAPI.BASE = config.intentsQuoteUrl;
@@ -198,6 +313,42 @@ app.post("/quote", async (c) => {
   // The bridgeBack flow happens after withdrawal completes
   if (burrowWithdraw) {
     return handleBurrowWithdrawQuote(c, payload, defuseQuoteFields, isDryRun, burrowWithdraw, sourceChain, userDestination, metadata);
+  }
+
+  // Sell flow: user sells a Solana token → wSOL lands in agent → agent bridges SOL out
+  if (userSourceAddress && sellDestinationChain) {
+    return handleSellQuote(c, payload, isDryRun, userSourceAddress, sellDestinationChain, sellDestinationAddress, sellDestinationAsset);
+  }
+
+  // NEAR sell flow: user sells a NEAR token → agent swaps to wNEAR → bridges out via Defuse
+  if (userNearAddress && sellDestinationChain) {
+    return handleNearSellQuote(c, payload, isDryRun, userNearAddress, sellDestinationChain, sellDestinationAddress, sellDestinationAsset);
+  }
+
+  // Aave V3 deposit: bridge tokens to EVM chain, then deposit into Aave
+  if (aaveDeposit) {
+    return handleAaveDepositQuote(c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata);
+  }
+
+  // Aave V3 withdraw: validation/preview for withdraw flow
+  if (aaveWithdraw) {
+    return handleAaveWithdrawQuote(c, payload, isDryRun, aaveWithdraw, sourceChain, userDestination, metadata);
+  }
+
+  // Morpho Blue deposit: bridge tokens to EVM chain, then supply to Morpho
+  if (morphoDeposit) {
+    return handleMorphoDepositQuote(c, payload, defuseQuoteFields, isDryRun, morphoDeposit, sourceChain, userDestination, metadata);
+  }
+
+  // Morpho Blue withdraw: validation/preview for withdraw flow
+  if (morphoWithdraw) {
+    return handleMorphoWithdrawQuote(c, payload, isDryRun, morphoWithdraw, sourceChain, userDestination, metadata);
+  }
+
+  // EVM swap flow: destination asset is on an EVM chain
+  const evmChain = detectEvmChainFromAsset(payload.destinationAsset);
+  if (evmChain) {
+    return handleEvmSwapQuote(c, payload, defuseQuoteFields, isDryRun, evmChain, sourceChain, userDestination, metadata);
   }
 
   // Derive the agent's Solana address for the 1-Click recipient (only needed for Solana flows)
@@ -811,5 +962,1017 @@ async function handleBurrowWithdrawQuote(
     },
   });
 }
+
+/**
+ * Handle sell quote requests.
+ * Sell flow: User sells a custom Solana token via Jupiter (user-signed TX),
+ * output lands in the agent wallet as wSOL, then agent bridges SOL out via Defuse.
+ *
+ * Returns an unsigned Jupiter swap transaction for the user to sign and broadcast.
+ */
+async function handleSellQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  isDryRun: boolean,
+  userSourceAddress: string,
+  sellDestinationChain: string,
+  sellDestinationAddress: string | undefined,
+  sellDestinationAsset: string | undefined,
+) {
+  if (!sellDestinationAddress) {
+    return c.json({ error: "sellDestinationAddress is required for sell quotes" }, 400);
+  }
+  if (!sellDestinationAsset) {
+    return c.json({ error: "sellDestinationAsset is required for sell quotes" }, 400);
+  }
+
+  // originAsset = the Solana token the user is selling
+  // The user's wallet will sign the Jupiter TX
+  const inputMint = extractSolanaMintAddress(payload.originAsset);
+
+  // Derive agent Solana address from userSourceAddress (custody isolation)
+  const agentPubkey = await deriveAgentPublicKey(undefined, userSourceAddress);
+  const agentSolanaAddress = agentPubkey.toBase58();
+
+  // Compute agent's wSOL ATA — Jupiter will send output here
+  const agentWsolAta = getAssociatedTokenAddressSync(
+    NATIVE_MINT,
+    agentPubkey,
+    true,
+    TOKEN_PROGRAM_ID,
+  );
+
+  console.info("[intents/quote] Sell quote: requesting Jupiter quote", {
+    inputMint,
+    outputMint: SOL_NATIVE_MINT,
+    amount: payload.amount,
+    userSourceAddress,
+    agentSolanaAddress,
+    agentWsolAta: agentWsolAta.toBase58(),
+    sellDestinationChain,
+  });
+
+  // Get Jupiter quote: custom token → wSOL
+  const clusterParam = config.jupiterCluster ? `&cluster=${config.jupiterCluster}` : "";
+  const jupiterQuoteUrl = `${config.jupiterBaseUrl}/quote?inputMint=${encodeURIComponent(inputMint)}&outputMint=${SOL_NATIVE_MINT}&amount=${payload.amount}&slippageBps=${payload.slippageTolerance || 300}${clusterParam}`;
+
+  const jupiterQuoteRes = await fetchWithRetry(
+    jupiterQuoteUrl,
+    undefined,
+    config.jupiterMaxAttempts,
+    config.jupiterRetryBackoffMs,
+  );
+  if (!jupiterQuoteRes.ok) {
+    const body = await jupiterQuoteRes.text().catch(() => "");
+    console.error("[intents/quote] Sell: Jupiter quote failed", { status: jupiterQuoteRes.status, body });
+    return c.json({ error: `Jupiter quote failed: ${jupiterQuoteRes.status} ${body}` }, 502);
+  }
+  const jupiterQuote = await jupiterQuoteRes.json();
+
+  const outAmount = jupiterQuote.outAmount;
+  if (!outAmount) {
+    console.error("[intents/quote] Sell: Jupiter quote missing outAmount", jupiterQuote);
+    return c.json({ error: "Jupiter quote missing outAmount" }, 502);
+  }
+
+  // Get Jupiter swap-instructions with user as signer, agent wSOL ATA as destination
+  const swapInstructionsRes = await fetchWithRetry(
+    `${config.jupiterBaseUrl}/swap-instructions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quoteResponse: jupiterQuote,
+        userPublicKey: userSourceAddress,
+        destinationTokenAccount: agentWsolAta.toBase58(),
+        wrapAndUnwrapSol: false, // Keep wSOL wrapped — agent unwraps later
+        dynamicComputeUnitLimit: true,
+        computeUnitPriceMicroLamports: "auto",
+      }),
+    },
+    config.jupiterMaxAttempts,
+    config.jupiterRetryBackoffMs,
+  );
+
+  if (!swapInstructionsRes.ok) {
+    const body = await swapInstructionsRes.text().catch(() => "");
+    console.error("[intents/quote] Sell: Jupiter swap-instructions failed", { status: swapInstructionsRes.status, body });
+    return c.json({ error: `Jupiter swap-instructions failed: ${swapInstructionsRes.status} ${body}` }, 502);
+  }
+
+  const swapInstructions = await swapInstructionsRes.json();
+
+  // Assemble the unsigned transaction
+  const instructions = [];
+
+  if (swapInstructions.computeBudgetInstructions) {
+    for (const ix of swapInstructions.computeBudgetInstructions) {
+      instructions.push(deserializeInstruction(ix));
+    }
+  }
+  if (swapInstructions.setupInstructions) {
+    for (const ix of swapInstructions.setupInstructions) {
+      instructions.push(deserializeInstruction(ix));
+    }
+  }
+  if (swapInstructions.swapInstruction) {
+    instructions.push(deserializeInstruction(swapInstructions.swapInstruction));
+  }
+  if (swapInstructions.cleanupInstruction) {
+    instructions.push(deserializeInstruction(swapInstructions.cleanupInstruction));
+  }
+  if (swapInstructions.otherInstructions) {
+    for (const ix of swapInstructions.otherInstructions) {
+      instructions.push(deserializeInstruction(ix));
+    }
+  }
+
+  const connection = getSolanaConnection();
+  const addressLookupTableAccounts = await getAddressLookupTableAccounts(
+    connection,
+    swapInstructions.addressLookupTableAddresses || [],
+  );
+
+  const { blockhash } = await connection.getLatestBlockhash();
+  const messageV0 = new TransactionMessage({
+    payerKey: new PublicKey(userSourceAddress),
+    recentBlockhash: blockhash,
+    instructions,
+  }).compileToV0Message(addressLookupTableAccounts);
+
+  const unsignedTx = new VersionedTransaction(messageV0);
+  const unsignedTxBase64 = Buffer.from(unsignedTx.serialize()).toString("base64");
+
+  // Generate an intent ID for tracking
+  const intentId = `shade-sell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // Save to Redis as awaiting_user_tx with full intent data
+  await setStatus(intentId, {
+    state: "awaiting_user_tx",
+    detail: "Waiting for user to sign and broadcast Jupiter swap transaction",
+    intentData: {
+      intentId,
+      sourceChain: "solana",
+      sourceAsset: payload.originAsset,
+      sourceAmount: payload.amount,
+      destinationChain: sellDestinationChain as IntentChain,
+      intermediateAsset: SOL_NATIVE_MINT,
+      finalAsset: sellDestinationAsset,
+      slippageBps: payload.slippageTolerance || 300,
+      userDestination: userSourceAddress,
+      agentDestination: agentSolanaAddress,
+      metadata: {
+        action: "sol-bridge-out",
+        userSourceAddress,
+        userTxHash: "",
+        userTxConfirmed: false,
+        destinationChain: sellDestinationChain,
+        destinationAddress: sellDestinationAddress,
+        destinationAsset: sellDestinationAsset,
+        slippageTolerance: payload.slippageTolerance,
+      },
+    },
+  });
+
+  console.info("[intents/quote] Sell quote ready", {
+    intentId,
+    inputMint,
+    outAmount,
+    agentSolanaAddress,
+    sellDestinationChain,
+  });
+
+  return c.json({
+    timestamp: new Date().toISOString(),
+    signature: "",
+    quoteRequest: {
+      ...payload,
+      dry: isDryRun,
+    },
+    quote: {
+      quoteId: intentId,
+      intentId,
+      amountOut: outAmount,
+      minAmountOut: outAmount,
+      unsignedTx: unsignedTxBase64,
+      direction: "sell",
+      agentSolanaAddress,
+      sellDestinationChain,
+      sellDestinationAddress,
+      sellDestinationAsset,
+    },
+  });
+}
+
+/**
+ * Handle NEAR sell quote requests.
+ * NEAR sell flow: User transfers a custom NEAR token to the agent via ft_transfer_call,
+ * then agent swaps token → wNEAR via Ref Finance and bridges wNEAR out via Defuse.
+ *
+ * Returns the transfer params the user needs to call ft_transfer_call.
+ */
+async function handleNearSellQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  isDryRun: boolean,
+  userNearAddress: string,
+  sellDestinationChain: string,
+  sellDestinationAddress: string | undefined,
+  sellDestinationAsset: string | undefined,
+) {
+  if (!sellDestinationAddress) {
+    return c.json({ error: "sellDestinationAddress is required for NEAR sell quotes" }, 400);
+  }
+  if (!sellDestinationAsset) {
+    return c.json({ error: "sellDestinationAsset is required for NEAR sell quotes" }, 400);
+  }
+
+  // originAsset = the NEAR token the user is selling (NEP-141 contract ID)
+  // Strip nep141: prefix if present
+  const tokenContract = payload.originAsset.startsWith("nep141:")
+    ? payload.originAsset.slice(7)
+    : payload.originAsset;
+
+  // Derive agent NEAR address from userNearAddress (custody isolation)
+  const userAgent = await deriveNearAgentAccount(NEAR_DEFAULT_PATH, userNearAddress);
+  const agentNearAddress = userAgent.accountId;
+
+  // Ensure the implicit account exists so it can receive tokens
+  await ensureNearAccountFunded(agentNearAddress);
+
+  console.info("[intents/quote] NEAR sell quote", {
+    tokenContract,
+    amount: payload.amount,
+    userNearAddress,
+    agentNearAddress,
+    sellDestinationChain,
+  });
+
+  // Generate an intent ID for tracking
+  const intentId = `shade-near-sell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // Save to Redis as awaiting_user_tx with full intent data
+  await setStatus(intentId, {
+    state: "awaiting_user_tx",
+    detail: "Waiting for user to execute ft_transfer_call to agent NEAR account",
+    intentData: {
+      intentId,
+      sourceChain: "near",
+      sourceAsset: payload.originAsset,
+      sourceAmount: payload.amount,
+      destinationChain: sellDestinationChain as IntentChain,
+      intermediateAsset: WRAP_NEAR_CONTRACT,
+      finalAsset: sellDestinationAsset,
+      slippageBps: payload.slippageTolerance || 300,
+      userDestination: userNearAddress,
+      agentDestination: agentNearAddress,
+      metadata: {
+        action: "near-bridge-out",
+        userNearAddress,
+        userTxHash: "",
+        userTxConfirmed: false,
+        tokenId: tokenContract,
+        destinationChain: sellDestinationChain,
+        destinationAddress: sellDestinationAddress,
+        destinationAsset: sellDestinationAsset,
+        slippageTolerance: payload.slippageTolerance,
+      },
+    },
+  });
+
+  console.info("[intents/quote] NEAR sell quote ready", {
+    intentId,
+    tokenContract,
+    agentNearAddress,
+    sellDestinationChain,
+  });
+
+  return c.json({
+    timestamp: new Date().toISOString(),
+    signature: "",
+    quoteRequest: {
+      ...payload,
+      dry: isDryRun,
+    },
+    quote: {
+      quoteId: intentId,
+      intentId,
+      amountOut: payload.amount,
+      minAmountOut: payload.amount,
+      direction: "sell",
+      agentNearAddress,
+      transferParams: {
+        tokenContract,
+        method: "ft_transfer_call",
+        args: {
+          receiver_id: agentNearAddress,
+          amount: payload.amount,
+          msg: "",
+        },
+      },
+      sellDestinationChain,
+      sellDestinationAddress,
+      sellDestinationAsset,
+    },
+  });
+}
+
+/**
+ * Handle EVM swap quote requests.
+ * EVM swap flow: Source asset -> native EVM token (via Intents/Defuse) -> target EVM token (via 0x)
+ * For same-token swaps (just bridging), the 0x leg is skipped.
+ */
+async function handleEvmSwapQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  defuseQuoteFields: Omit<QuoteRequestBody, "sourceChain" | "userDestination" | "metadata" | "kaminoDeposit" | "burrowDeposit" | "burrowWithdraw" | "userSourceAddress" | "sellDestinationChain" | "sellDestinationAddress" | "sellDestinationAsset" | "userNearAddress">,
+  isDryRun: boolean,
+  evmChain: EvmChainName,
+  sourceChain: IntentChain | undefined,
+  userDestination: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+) {
+  const chainConfig = EVM_CHAIN_CONFIGS[evmChain];
+
+  // Derive the agent's EVM address for the recipient
+  let agentEvmAddress: string | undefined;
+  if (userDestination) {
+    agentEvmAddress = await deriveEvmAgentAddress(userDestination);
+  }
+
+  // Bridge leg: swap source asset to the native EVM token via Defuse/Intents
+  const nativeDefuseAssetId = chainConfig.nativeDefuseAssetId;
+
+  const bridgeQuoteRequest = {
+    ...defuseQuoteFields,
+    destinationAsset: nativeDefuseAssetId,
+    dry: isDryRun,
+    ...(agentEvmAddress && {
+      recipient: agentEvmAddress,
+      recipientType: "DESTINATION_CHAIN" as const,
+    }),
+  };
+
+  console.info("[intents/quote] EVM swap: requesting bridge leg quote", {
+    originAsset: payload.originAsset,
+    destinationAsset: payload.destinationAsset,
+    nativeDefuseAssetId,
+    evmChain,
+    amount: payload.amount,
+    dry: isDryRun,
+    intentsQuoteUrl: OpenAPI.BASE,
+    agentRecipient: agentEvmAddress,
+  });
+
+  let intentsQuote: IntentsQuoteResponse;
+  try {
+    intentsQuote = (await OneClickService.getQuote(
+      bridgeQuoteRequest as any,
+    )) as IntentsQuoteResponse;
+  } catch (err) {
+    console.error("[intents/quote] EVM swap: bridge quote failed", err);
+    return c.json({ error: (err as Error).message }, 502);
+  }
+
+  const baseQuote = intentsQuote.quote || {};
+  const rawBridgeAmount =
+    baseQuote.amountOut ||
+    baseQuote.minAmountOut ||
+    baseQuote.amountIn ||
+    baseQuote.amount;
+  if (!rawBridgeAmount) {
+    return c.json({ error: "Intents quote missing amountOut" }, 502);
+  }
+
+  let bridgeAmount: string;
+  try {
+    bridgeAmount = BigInt(rawBridgeAmount).toString();
+  } catch (e) {
+    console.error("[intents/quote] EVM swap: failed to parse bridgeAmount", { rawBridgeAmount });
+    return c.json({ error: `Invalid amount format from intents: ${rawBridgeAmount}` }, 502);
+  }
+
+  // Check if we need a swap leg (destination asset != native token)
+  const buyToken = extractEvmTokenAddress(payload.destinationAsset);
+  const needsSwap = !isNativeEvmToken(buyToken);
+
+  let finalAmountOut = bridgeAmount;
+
+  // Optional: 0x preview quote for swap leg (native → target token)
+  if (needsSwap && config.zeroExApiKey && agentEvmAddress) {
+    try {
+      const zeroExUrl = new URL(`${chainConfig.zeroExBaseUrl}/swap/v1/price`);
+      zeroExUrl.searchParams.set("sellToken", ETH_NATIVE_TOKEN);
+      zeroExUrl.searchParams.set("buyToken", buyToken);
+      zeroExUrl.searchParams.set("sellAmount", bridgeAmount);
+      zeroExUrl.searchParams.set("takerAddress", agentEvmAddress);
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (config.zeroExApiKey) {
+        headers["0x-api-key"] = config.zeroExApiKey;
+      }
+
+      const previewRes = await fetchWithRetry(
+        zeroExUrl.toString(),
+        { headers },
+        config.zeroExMaxAttempts,
+        config.zeroExRetryBackoffMs,
+      );
+
+      if (previewRes.ok) {
+        const preview = await previewRes.json();
+        if (preview.buyAmount) {
+          finalAmountOut = preview.buyAmount;
+        }
+      }
+    } catch (err) {
+      console.warn("[intents/quote] EVM swap: 0x price preview failed (non-fatal)", err);
+    }
+  }
+
+  const quoteId = baseQuote.quoteId || `shade-evm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // When dry: false, auto-enqueue the EVM swap intent
+  if (!isDryRun && config.enableQueue && baseQuote.depositAddress) {
+    if (!sourceChain) {
+      return c.json({ error: "sourceChain is required when dry: false" }, 400);
+    }
+    if (!userDestination) {
+      return c.json({ error: "userDestination is required when dry: false" }, 400);
+    }
+
+    try {
+      const agentDestination = agentEvmAddress!;
+
+      const intentMessage: IntentMessage = {
+        intentId: quoteId,
+        sourceChain,
+        sourceAsset: payload.originAsset,
+        sourceAmount: payload.amount,
+        destinationChain: evmChain as IntentChain,
+        intermediateAmount: bridgeAmount,
+        finalAsset: payload.destinationAsset,
+        slippageBps: payload.slippageTolerance,
+        userDestination,
+        agentDestination,
+        intentsDepositAddress: baseQuote.depositAddress,
+        depositMemo: baseQuote.depositMemo,
+        metadata: {
+          ...metadata,
+          action: "evm-swap",
+        },
+      };
+
+      const validatedIntent = validateIntent(intentMessage);
+      await queueClient.enqueueIntent(validatedIntent);
+      await setStatus(validatedIntent.intentId, { state: "pending" });
+
+      console.info("[intents/quote] EVM swap intent auto-enqueued", {
+        intentId: quoteId,
+        sourceChain,
+        evmChain,
+        depositAddress: baseQuote.depositAddress,
+      });
+    } catch (err) {
+      console.error("[intents/quote] Failed to auto-enqueue EVM swap intent", err);
+    }
+  }
+
+  return c.json({
+    timestamp: intentsQuote.timestamp || new Date().toISOString(),
+    signature: intentsQuote.signature || "",
+    quoteRequest: {
+      ...payload,
+      dry: isDryRun,
+    },
+    quote: {
+      ...baseQuote,
+      quoteId,
+      amountOut: finalAmountOut,
+      minAmountOut: finalAmountOut,
+      destinationAsset: payload.destinationAsset,
+      depositAddress: baseQuote.depositAddress,
+      depositMemo: baseQuote.depositMemo,
+      evmChain,
+      needsSwap,
+    },
+  });
+}
+
+// ─── Aave V3 Quote Handlers ─────────────────────────────────────────────────────
+
+/**
+ * Handle Aave V3 deposit quote requests.
+ * Bridge tokens to the target EVM chain, then deposit into Aave V3 Pool.
+ */
+async function handleAaveDepositQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  defuseQuoteFields: Record<string, unknown>,
+  isDryRun: boolean,
+  sourceChain: IntentChain | undefined,
+  userDestination: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+) {
+  const evmChain = detectEvmChainFromAsset(payload.destinationAsset);
+  if (!evmChain || !["ethereum", "base", "arbitrum"].includes(evmChain)) {
+    return c.json({ error: "Aave V3 deposit requires destination on ethereum, base, or arbitrum" }, 400);
+  }
+
+  const chainConfig = EVM_CHAIN_CONFIGS[evmChain];
+  let agentEvmAddress: string | undefined;
+  if (userDestination) {
+    agentEvmAddress = await deriveEvmAgentAddress(userDestination);
+  }
+
+  // Bridge to the destination asset (the ERC-20 token to deposit into Aave)
+  const bridgeQuoteRequest = {
+    ...defuseQuoteFields,
+    dry: isDryRun,
+    ...(agentEvmAddress && {
+      recipient: agentEvmAddress,
+      recipientType: "DESTINATION_CHAIN" as const,
+    }),
+  };
+
+  console.info("[intents/quote] Aave deposit: requesting bridge quote", {
+    originAsset: payload.originAsset,
+    destinationAsset: payload.destinationAsset,
+    evmChain,
+    amount: payload.amount,
+    dry: isDryRun,
+    agentRecipient: agentEvmAddress,
+  });
+
+  let intentsQuote: IntentsQuoteResponse;
+  try {
+    intentsQuote = (await OneClickService.getQuote(bridgeQuoteRequest as any)) as IntentsQuoteResponse;
+  } catch (err) {
+    console.error("[intents/quote] Aave deposit: bridge quote failed", err);
+    return c.json({ error: (err as Error).message }, 502);
+  }
+
+  const baseQuote = intentsQuote.quote || {};
+  const rawAmountOut = baseQuote.amountOut || baseQuote.minAmountOut || baseQuote.amount;
+  if (!rawAmountOut) {
+    return c.json({ error: "Intents quote missing amountOut" }, 502);
+  }
+
+  let amountOut: string;
+  try {
+    amountOut = BigInt(rawAmountOut).toString();
+  } catch {
+    return c.json({ error: `Invalid amount format from intents: ${rawAmountOut}` }, 502);
+  }
+
+  const quoteId = baseQuote.quoteId || `shade-aave-deposit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  if (!isDryRun && config.enableQueue && baseQuote.depositAddress) {
+    if (!sourceChain) return c.json({ error: "sourceChain is required when dry: false" }, 400);
+    if (!userDestination) return c.json({ error: "userDestination is required when dry: false" }, 400);
+
+    try {
+      const intentMessage: IntentMessage = {
+        intentId: quoteId,
+        sourceChain,
+        sourceAsset: payload.originAsset,
+        sourceAmount: payload.amount,
+        destinationChain: evmChain as IntentChain,
+        intermediateAmount: amountOut,
+        finalAsset: payload.destinationAsset,
+        slippageBps: payload.slippageTolerance,
+        userDestination,
+        agentDestination: agentEvmAddress!,
+        intentsDepositAddress: baseQuote.depositAddress,
+        depositMemo: baseQuote.depositMemo,
+        metadata: { ...metadata, action: "aave-deposit" },
+      };
+
+      const validatedIntent = validateIntent(intentMessage);
+      await queueClient.enqueueIntent(validatedIntent);
+      await setStatus(validatedIntent.intentId, { state: "pending" });
+
+      console.info("[intents/quote] Aave deposit intent auto-enqueued", {
+        intentId: quoteId,
+        sourceChain,
+        evmChain,
+        depositAddress: baseQuote.depositAddress,
+      });
+    } catch (err) {
+      console.error("[intents/quote] Failed to auto-enqueue Aave deposit intent", err);
+    }
+  }
+
+  return c.json({
+    timestamp: intentsQuote.timestamp || new Date().toISOString(),
+    signature: intentsQuote.signature || "",
+    quoteRequest: { ...payload, dry: isDryRun },
+    quote: {
+      ...baseQuote,
+      quoteId,
+      amountOut,
+      minAmountOut: amountOut,
+      destinationAsset: payload.destinationAsset,
+      depositAddress: baseQuote.depositAddress,
+      depositMemo: baseQuote.depositMemo,
+      evmChain,
+      protocol: "aave-v3",
+    },
+  });
+}
+
+/**
+ * Handle Aave V3 withdraw quote requests.
+ * For withdrawals, the frontend must submit a signed intent via POST /api/intents.
+ */
+async function handleAaveWithdrawQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  isDryRun: boolean,
+  aaveWithdraw: { underlyingAsset: string; bridgeBack?: { destinationChain: string; destinationAddress: string; destinationAsset: string; slippageTolerance?: number } },
+  sourceChain: IntentChain | undefined,
+  userDestination: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+) {
+  const quoteId = `shade-aave-withdraw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return c.json({
+    timestamp: new Date().toISOString(),
+    signature: "",
+    quoteRequest: { ...payload, dry: isDryRun },
+    quote: {
+      quoteId,
+      amountOut: payload.amount,
+      minAmountOut: payload.amount,
+      underlyingAsset: aaveWithdraw.underlyingAsset,
+      protocol: "aave-v3",
+      message: "Submit withdraw intent via POST /api/intents with userSignature",
+    },
+  });
+}
+
+// ─── Morpho Blue Quote Handlers ─────────────────────────────────────────────────
+
+/**
+ * Handle Morpho Blue deposit quote requests.
+ * Bridge tokens to the target EVM chain, then supply to Morpho Blue market.
+ */
+async function handleMorphoDepositQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  defuseQuoteFields: Record<string, unknown>,
+  isDryRun: boolean,
+  morphoDeposit: { marketId: string; loanToken: string; collateralToken: string; oracle: string; irm: string; lltv: string },
+  sourceChain: IntentChain | undefined,
+  userDestination: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+) {
+  const evmChain = detectEvmChainFromAsset(payload.destinationAsset);
+  if (!evmChain || !["ethereum", "base"].includes(evmChain)) {
+    return c.json({ error: "Morpho Blue deposit requires destination on ethereum or base" }, 400);
+  }
+
+  let agentEvmAddress: string | undefined;
+  if (userDestination) {
+    agentEvmAddress = await deriveEvmAgentAddress(userDestination);
+  }
+
+  const bridgeQuoteRequest = {
+    ...defuseQuoteFields,
+    dry: isDryRun,
+    ...(agentEvmAddress && {
+      recipient: agentEvmAddress,
+      recipientType: "DESTINATION_CHAIN" as const,
+    }),
+  };
+
+  console.info("[intents/quote] Morpho deposit: requesting bridge quote", {
+    originAsset: payload.originAsset,
+    destinationAsset: payload.destinationAsset,
+    evmChain,
+    amount: payload.amount,
+    dry: isDryRun,
+    agentRecipient: agentEvmAddress,
+    morphoMarketId: morphoDeposit.marketId,
+  });
+
+  let intentsQuote: IntentsQuoteResponse;
+  try {
+    intentsQuote = (await OneClickService.getQuote(bridgeQuoteRequest as any)) as IntentsQuoteResponse;
+  } catch (err) {
+    console.error("[intents/quote] Morpho deposit: bridge quote failed", err);
+    return c.json({ error: (err as Error).message }, 502);
+  }
+
+  const baseQuote = intentsQuote.quote || {};
+  const rawAmountOut = baseQuote.amountOut || baseQuote.minAmountOut || baseQuote.amount;
+  if (!rawAmountOut) {
+    return c.json({ error: "Intents quote missing amountOut" }, 502);
+  }
+
+  let amountOut: string;
+  try {
+    amountOut = BigInt(rawAmountOut).toString();
+  } catch {
+    return c.json({ error: `Invalid amount format from intents: ${rawAmountOut}` }, 502);
+  }
+
+  const quoteId = baseQuote.quoteId || `shade-morpho-deposit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  if (!isDryRun && config.enableQueue && baseQuote.depositAddress) {
+    if (!sourceChain) return c.json({ error: "sourceChain is required when dry: false" }, 400);
+    if (!userDestination) return c.json({ error: "userDestination is required when dry: false" }, 400);
+
+    try {
+      const intentMessage: IntentMessage = {
+        intentId: quoteId,
+        sourceChain,
+        sourceAsset: payload.originAsset,
+        sourceAmount: payload.amount,
+        destinationChain: evmChain as IntentChain,
+        intermediateAmount: amountOut,
+        finalAsset: payload.destinationAsset,
+        slippageBps: payload.slippageTolerance,
+        userDestination,
+        agentDestination: agentEvmAddress!,
+        intentsDepositAddress: baseQuote.depositAddress,
+        depositMemo: baseQuote.depositMemo,
+        metadata: {
+          ...metadata,
+          action: "morpho-deposit",
+          marketId: morphoDeposit.marketId,
+          loanToken: morphoDeposit.loanToken,
+          collateralToken: morphoDeposit.collateralToken,
+          oracle: morphoDeposit.oracle,
+          irm: morphoDeposit.irm,
+          lltv: morphoDeposit.lltv,
+        },
+      };
+
+      const validatedIntent = validateIntent(intentMessage);
+      await queueClient.enqueueIntent(validatedIntent);
+      await setStatus(validatedIntent.intentId, { state: "pending" });
+
+      console.info("[intents/quote] Morpho deposit intent auto-enqueued", {
+        intentId: quoteId,
+        sourceChain,
+        evmChain,
+        depositAddress: baseQuote.depositAddress,
+        morphoMarketId: morphoDeposit.marketId,
+      });
+    } catch (err) {
+      console.error("[intents/quote] Failed to auto-enqueue Morpho deposit intent", err);
+    }
+  }
+
+  return c.json({
+    timestamp: intentsQuote.timestamp || new Date().toISOString(),
+    signature: intentsQuote.signature || "",
+    quoteRequest: { ...payload, dry: isDryRun },
+    quote: {
+      ...baseQuote,
+      quoteId,
+      amountOut,
+      minAmountOut: amountOut,
+      destinationAsset: payload.destinationAsset,
+      depositAddress: baseQuote.depositAddress,
+      depositMemo: baseQuote.depositMemo,
+      evmChain,
+      protocol: "morpho-blue",
+      morphoMarketId: morphoDeposit.marketId,
+    },
+  });
+}
+
+/**
+ * Handle Morpho Blue withdraw quote requests.
+ * For withdrawals, the frontend must submit a signed intent via POST /api/intents.
+ */
+async function handleMorphoWithdrawQuote(
+  c: any,
+  payload: QuoteRequestBody,
+  isDryRun: boolean,
+  morphoWithdraw: { marketId: string; loanToken: string; collateralToken: string; oracle: string; irm: string; lltv: string; bridgeBack?: { destinationChain: string; destinationAddress: string; destinationAsset: string; slippageTolerance?: number } },
+  sourceChain: IntentChain | undefined,
+  userDestination: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+) {
+  const quoteId = `shade-morpho-withdraw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return c.json({
+    timestamp: new Date().toISOString(),
+    signature: "",
+    quoteRequest: { ...payload, dry: isDryRun },
+    quote: {
+      quoteId,
+      amountOut: payload.amount,
+      minAmountOut: payload.amount,
+      morphoMarketId: morphoWithdraw.marketId,
+      protocol: "morpho-blue",
+      message: "Submit withdraw intent via POST /api/intents with userSignature",
+    },
+  });
+}
+
+function isNativeEvmToken(address: string): boolean {
+  return (
+    address.toLowerCase() === ETH_NATIVE_TOKEN.toLowerCase() ||
+    address === "0x0000000000000000000000000000000000000000"
+  );
+}
+
+/**
+ * POST /api/intents/:intentId/confirm
+ *
+ * Confirm a user-signed sell transaction.
+ * After the user signs and broadcasts the sell TX (Jupiter for Solana, ft_transfer for NEAR),
+ * this endpoint verifies it on-chain and enqueues the bridge-out intent.
+ */
+app.post("/:intentId/confirm", async (c) => {
+  if (!config.enableQueue) {
+    return c.json({ error: "Queue consumer is disabled" }, 503);
+  }
+
+  const intentId = c.req.param("intentId");
+
+  let body: { txHash: string };
+  try {
+    body = await c.req.json<{ txHash: string }>();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (!body.txHash) {
+    return c.json({ error: "txHash is required" }, 400);
+  }
+
+  // Verify the intent exists and is in the correct state
+  const status = await getStatus(intentId);
+  if (!status) {
+    return c.json({ error: "Intent not found" }, 404);
+  }
+  if (status.state !== "awaiting_user_tx") {
+    return c.json({
+      error: `Intent is in state '${status.state}', expected 'awaiting_user_tx'`,
+    }, 409);
+  }
+  if (!status.intentData) {
+    return c.json({ error: "Intent data missing from status" }, 500);
+  }
+
+  const intentData = status.intentData;
+  const meta = intentData.metadata as any;
+
+  // Dispatch verification based on the action type
+  if (meta.action === "near-bridge-out") {
+    // ─── NEAR sell: verify ft_transfer on NEAR ───────────────────────────
+    const userNearAddress = meta.userNearAddress;
+    if (!userNearAddress) {
+      return c.json({ error: "Missing userNearAddress in intent metadata" }, 500);
+    }
+
+    let txResult;
+    try {
+      txResult = await getNearTransactionStatus(body.txHash, userNearAddress);
+    } catch (err) {
+      console.error("[intents/confirm] Failed to fetch NEAR transaction", { txHash: body.txHash, err });
+      return c.json({ error: "Failed to verify NEAR transaction on-chain" }, 502);
+    }
+
+    if (!txResult.success) {
+      return c.json({ error: "NEAR transaction failed on-chain" }, 400);
+    }
+
+    // Security: verify the TX is an ft_transfer or ft_transfer_call to the agent's NEAR account
+    const agentAccount = await deriveNearAgentAccount(NEAR_DEFAULT_PATH, userNearAddress);
+    const agentNearAddress = agentAccount.accountId;
+
+    const hasFtTransfer = txResult.actions.some((a) => {
+      const isFtMethod = a.methodName === "ft_transfer" || a.methodName === "ft_transfer_call";
+      const toAgent = a.args?.receiver_id === agentNearAddress;
+      return isFtMethod && toAgent;
+    });
+
+    if (!hasFtTransfer) {
+      console.warn("[intents/confirm] NEAR TX is not an ft_transfer to agent", {
+        intentId,
+        txHash: body.txHash,
+        agentNearAddress,
+        receiverId: txResult.receiverId,
+        actions: txResult.actions,
+      });
+      return c.json({ error: "Transaction is not an ft_transfer to the expected agent address" }, 403);
+    }
+
+    // Update intent metadata with confirmed TX hash and enqueue
+    meta.userTxHash = body.txHash;
+    meta.userTxConfirmed = true;
+    intentData.metadata = meta;
+
+    try {
+      const validatedIntent = validateIntent(intentData);
+      await queueClient.enqueueIntent(validatedIntent);
+      await setStatus(intentId, {
+        state: "processing",
+        detail: "NEAR transaction confirmed, bridge-out in progress",
+        intentData: validatedIntent,
+      });
+
+      console.info("[intents/confirm] NEAR sell intent confirmed and enqueued", {
+        intentId,
+        txHash: body.txHash,
+        agentNearAddress,
+      });
+
+      return c.json({
+        intentId,
+        state: "processing",
+        txHash: body.txHash,
+      });
+    } catch (err) {
+      console.error("[intents/confirm] Failed to enqueue confirmed NEAR intent", err);
+      return c.json({ error: "Failed to enqueue intent" }, 500);
+    }
+  } else {
+    // ─── Solana sell: verify Jupiter TX on Solana ────────────────────────
+    const connection = getSolanaConnection();
+    let txInfo;
+    try {
+      txInfo = await connection.getTransaction(body.txHash, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+    } catch (err) {
+      console.error("[intents/confirm] Failed to fetch transaction", { txHash: body.txHash, err });
+      return c.json({ error: "Failed to verify transaction on-chain" }, 502);
+    }
+
+    if (!txInfo) {
+      return c.json({ error: "Transaction not found on-chain. It may not be confirmed yet." }, 404);
+    }
+
+    if (txInfo.meta?.err) {
+      return c.json({ error: `Transaction failed on-chain: ${JSON.stringify(txInfo.meta.err)}` }, 400);
+    }
+
+    // Security: verify the agent address appears in the TX account keys
+    const agentPubkey = await deriveAgentPublicKey(undefined, meta.userSourceAddress);
+    const agentAddress = agentPubkey.toBase58();
+    const accountKeys = txInfo.transaction.message.getAccountKeys();
+    const accountAddresses = [];
+    for (let i = 0; i < accountKeys.length; i++) {
+      accountAddresses.push(accountKeys.get(i)?.toBase58());
+    }
+
+    // Check agent wSOL ATA (the destination token account)
+    const agentWsolAta = getAssociatedTokenAddressSync(
+      NATIVE_MINT,
+      agentPubkey,
+      true,
+      TOKEN_PROGRAM_ID,
+    );
+
+    const agentInvolved = accountAddresses.includes(agentAddress) || accountAddresses.includes(agentWsolAta.toBase58());
+    if (!agentInvolved) {
+      console.warn("[intents/confirm] Agent address not found in TX account keys", {
+        intentId,
+        txHash: body.txHash,
+        agentAddress,
+        agentWsolAta: agentWsolAta.toBase58(),
+      });
+      return c.json({ error: "Transaction does not involve the expected agent address" }, 403);
+    }
+
+    // Update intent metadata with confirmed TX hash and enqueue
+    meta.userTxHash = body.txHash;
+    meta.userTxConfirmed = true;
+    intentData.metadata = meta;
+
+    try {
+      const validatedIntent = validateIntent(intentData);
+      await queueClient.enqueueIntent(validatedIntent);
+      await setStatus(intentId, {
+        state: "processing",
+        detail: "User transaction confirmed, bridge-out in progress",
+        intentData: validatedIntent,
+      });
+
+      console.info("[intents/confirm] Sell intent confirmed and enqueued", {
+        intentId,
+        txHash: body.txHash,
+        agentAddress,
+      });
+
+      return c.json({
+        intentId,
+        state: "processing",
+        txHash: body.txHash,
+      });
+    } catch (err) {
+      console.error("[intents/confirm] Failed to enqueue confirmed intent", err);
+      return c.json({ error: "Failed to enqueue intent" }, 500);
+    }
+  }
+});
 
 export default app;

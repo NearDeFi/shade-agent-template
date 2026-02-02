@@ -48,6 +48,14 @@ export const config = {
   priceFeedRetryBackoffMs:
     parseInt(process.env.PRICE_FEED_RETRY_BACKOFF_MS || "", 10) || 500,
   ethRpcUrl: process.env.ETH_RPC_URL || "https://sepolia.drpc.org",
+  baseRpcUrl: process.env.BASE_RPC_URL || "https://mainnet.base.org",
+  arbRpcUrl: process.env.ARB_RPC_URL || "https://arb1.arbitrum.io/rpc",
+  bnbRpcUrl: process.env.BNB_RPC_URL || "https://bsc-dataseed.binance.org",
+  zeroExApiKey: process.env.ZERO_EX_API_KEY || "",
+  zeroExMaxAttempts:
+    parseInt(process.env.ZERO_EX_MAX_ATTEMPTS || "", 10) || 3,
+  zeroExRetryBackoffMs:
+    parseInt(process.env.ZERO_EX_RETRY_BACKOFF_MS || "", 10) || 500,
   ethContractAddress:
     process.env.ETH_CONTRACT_ADDRESS ||
     "0xb8d9b079F1604e9016137511464A1Fe97F8e2Bd8",

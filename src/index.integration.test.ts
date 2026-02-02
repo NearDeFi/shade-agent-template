@@ -85,6 +85,26 @@ vi.mock("./state/status", () => ({
 }));
 
 vi.mock("chainsig.js", () => ({
+  contracts: {
+    ChainSignatureContract: class {
+      constructor(_args: unknown) {}
+      getDerivedPublicKey() {
+        return "ed25519:11111111111111111111111111111111";
+      }
+    },
+  },
+  chainAdapters: {
+    near: {
+      NEAR: class {
+        constructor(_args: unknown) {}
+      },
+    },
+    solana: {
+      Solana: class {
+        constructor(_args: unknown) {}
+      },
+    },
+  },
   utils: {
     cryptography: {
       toRSV: vi.fn().mockReturnValue("rsvsig"),

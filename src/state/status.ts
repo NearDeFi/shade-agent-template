@@ -2,7 +2,7 @@ import Redis from "ioredis";
 import { config } from "../config";
 import { ValidatedIntent } from "../queue/types";
 
-export type IntentState = "pending" | "processing" | "awaiting_deposit" | "awaiting_intents" | "succeeded" | "failed";
+export type IntentState = "pending" | "processing" | "awaiting_deposit" | "awaiting_intents" | "awaiting_user_tx" | "succeeded" | "failed";
 
 export type IntentStatus = {
   intentId?: string;

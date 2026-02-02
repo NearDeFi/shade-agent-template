@@ -5,7 +5,8 @@ import { validateIntent } from "./validation";
 import { config } from "../config";
 import { flowRegistry, createFlowContext } from "../flows";
 import { emitFlowMetrics, categorizeError } from "../flows/metrics";
-import { refundSolanaTokensToUser, refundNearTokensToUser } from "../utils/refund";
+import { refundSolanaTokensToUser, refundNearTokensToUser, refundEvmTokensToUser } from "../utils/refund";
+import { EVM_SWAP_CHAINS, EvmChainName } from "../utils/evmChains";
 
 /**
  * Starts the queue consumer with parallel processing support.
@@ -162,6 +163,15 @@ async function attemptRefund(
         config.dryRunSwaps,
       );
     }
+    if (EVM_SWAP_CHAINS.includes(intent.destinationChain as EvmChainName)) {
+      return await refundEvmTokensToUser(
+        intent.destinationChain as EvmChainName,
+        intent.intermediateAsset,
+        intent.userDestination,
+        console,
+        config.dryRunSwaps,
+      );
+    }
   } catch (refundErr) {
     console.error(
       `[consumer] Refund attempt failed for ${intent.intentId}:`,
@@ -177,6 +187,11 @@ async function attemptRefund(
 function needsIntentsWait(intent: ValidatedIntent): boolean {
   // If intents already completed (re-queued by poller), skip waiting
   if ((intent.metadata as any)?.intentsCompleted) {
+    return false;
+  }
+
+  // Sell flow: user TX already confirmed on-chain, no bridge-in needed
+  if ((intent.metadata as any)?.userTxConfirmed) {
     return false;
   }
 

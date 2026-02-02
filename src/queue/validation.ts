@@ -20,9 +20,10 @@ export function validateIntent(message: IntentMessage): ValidatedIntent {
       );
     }
   } else {
-    // Default: solana for unknown/swap flows
-    if (message.destinationChain !== "solana") {
-      throw new Error("destinationChain must be solana");
+    // Default: solana or EVM chains for unknown/swap flows
+    const allowedDefaults: string[] = ["solana", "ethereum", "base", "arbitrum", "bnb"];
+    if (!allowedDefaults.includes(message.destinationChain)) {
+      throw new Error(`destinationChain must be one of: ${allowedDefaults.join(", ")}`);
     }
   }
 
@@ -77,7 +78,7 @@ export function validateIntent(message: IntentMessage): ValidatedIntent {
   }
 
   const intermediateAsset =
-    message.intermediateAsset || getDefaultIntermediateAsset(message);
+    message.intermediateAsset ?? getDefaultIntermediateAsset(message);
 
   return {
     ...message,
@@ -89,8 +90,16 @@ export function validateIntent(message: IntentMessage): ValidatedIntent {
   };
 }
 
-function getDefaultIntermediateAsset(intent: IntentMessage) {
+/** Maps destination chain to native Defuse asset ID used as the intermediate asset */
+const EVM_NATIVE_DEFUSE_ASSETS: Record<string, string> = {
+  ethereum: "nep141:eth.omft.near",
+  base: "nep141:base.omft.near",
+  arbitrum: "nep141:arb.omft.near",
+  bnb: "nep245:v2_1.omni.hot.tg:56_11111111111111111111",
+};
+
+function getDefaultIntermediateAsset(intent: IntentMessage): string | undefined {
   if (intent.destinationChain === "solana") return SOL_NATIVE_MINT;
   if (intent.destinationChain === "near") return WRAP_NEAR_CONTRACT;
-  throw new Error("intermediateAsset missing");
+  return EVM_NATIVE_DEFUSE_ASSETS[intent.destinationChain];
 }

@@ -34,11 +34,11 @@ describe("kaminoPositions route", () => {
   });
 
   describe("GET /", () => {
-    it("returns user address and instructions without nearPublicKey", async () => {
+    it("returns user address and instructions with userDestination", async () => {
       const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
 
-      const res = await app.request("/api/kamino-positions");
+      const res = await app.request("/api/kamino-positions?userDestination=user.near");
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -46,25 +46,25 @@ describe("kaminoPositions route", () => {
       expect(body.message).toContain("Use GET /:marketAddress");
     });
 
-    it("derives address from nearPublicKey when provided", async () => {
+    it("derives address from userDestination when provided", async () => {
       const mockPubkey = new PublicKey("4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk");
       deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
 
       const res = await app.request(
-        "/api/kamino-positions?nearPublicKey=ed25519:ABC123"
+        "/api/kamino-positions?userDestination=user.near"
       );
 
       expect(res.status).toBe(200);
       expect(deriveAgentPublicKeyMock).toHaveBeenCalledWith(
         "solana,1",
-        "ed25519:ABC123"
+        "user.near"
       );
     });
 
     it("returns 500 on derivation error", async () => {
       deriveAgentPublicKeyMock.mockRejectedValue(new Error("Invalid public key"));
 
-      const res = await app.request("/api/kamino-positions");
+      const res = await app.request("/api/kamino-positions?userDestination=user.near");
 
       expect(res.status).toBe(500);
       const body = await res.json();
@@ -110,7 +110,7 @@ describe("kaminoPositions route", () => {
       });
 
       const res = await app.request(
-        `/api/kamino-positions/${marketAddress}?nearPublicKey=ed25519:ABC123`
+        `/api/kamino-positions/${marketAddress}?userDestination=user.near`
       );
 
       expect(res.status).toBe(200);
@@ -127,7 +127,7 @@ describe("kaminoPositions route", () => {
       KaminoMarketMock.load.mockResolvedValue(null);
 
       const res = await app.request(
-        `/api/kamino-positions/${marketAddress}?nearPublicKey=ed25519:ABC123`
+        `/api/kamino-positions/${marketAddress}?userDestination=user.near`
       );
 
       expect(res.status).toBe(404);
@@ -145,7 +145,7 @@ describe("kaminoPositions route", () => {
       });
 
       const res = await app.request(
-        `/api/kamino-positions/${marketAddress}?nearPublicKey=ed25519:ABC123`
+        `/api/kamino-positions/${marketAddress}?userDestination=user.near`
       );
 
       expect(res.status).toBe(200);
@@ -159,7 +159,7 @@ describe("kaminoPositions route", () => {
       KaminoMarketMock.load.mockRejectedValue(new Error("RPC timeout"));
 
       const res = await app.request(
-        `/api/kamino-positions/${marketAddress}?nearPublicKey=ed25519:ABC123`
+        `/api/kamino-positions/${marketAddress}?userDestination=user.near`
       );
 
       expect(res.status).toBe(500);
@@ -210,7 +210,7 @@ describe("kaminoPositions route", () => {
       });
 
       const res = await app.request(
-        `/api/kamino-positions/${marketAddress}?nearPublicKey=ed25519:ABC123`
+        `/api/kamino-positions/${marketAddress}?userDestination=user.near`
       );
 
       expect(res.status).toBe(200);
@@ -252,7 +252,7 @@ describe("kaminoPositions route", () => {
       });
 
       const res = await app.request(
-        `/api/kamino-positions/${marketAddress}?nearPublicKey=ed25519:ABC123`
+        `/api/kamino-positions/${marketAddress}?userDestination=user.near`
       );
 
       expect(res.status).toBe(200);

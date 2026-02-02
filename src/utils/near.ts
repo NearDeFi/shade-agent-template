@@ -356,3 +356,58 @@ export async function executeNearFunctionCall(
 export const GAS_FOR_FT_TRANSFER_CALL = BigInt("100000000000000"); // 100 TGas
 export const ONE_YOCTO = BigInt("1");
 export const ZERO_DEPOSIT = BigInt("0");
+
+// ─── NEAR Transaction Verification ──────────────────────────────────────────
+
+export interface NearTransactionResult {
+  /** Whether the transaction succeeded */
+  success: boolean;
+  /** The receiver of the transaction */
+  receiverId: string;
+  /** Actions in the transaction */
+  actions: Array<{
+    type: string;
+    methodName?: string;
+    args?: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * Verify a NEAR transaction on-chain by querying RPC for the TX outcome.
+ *
+ * @param txHash - The transaction hash (base58 encoded)
+ * @param senderAccountId - The sender's NEAR account ID
+ * @returns Transaction result including receiver and actions
+ */
+export async function getNearTransactionStatus(
+  txHash: string,
+  senderAccountId: string,
+): Promise<NearTransactionResult> {
+  const result: any = await nearProvider.txStatus(txHash, senderAccountId, "FINAL");
+
+  const success = !result.status?.Failure;
+  const receiverId = result.transaction?.receiver_id || "";
+  const rawActions = result.transaction?.actions || [];
+
+  const actions = rawActions.map((action: any) => {
+    if (action.FunctionCall) {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(Buffer.from(action.FunctionCall.args, "base64").toString("utf8"));
+      } catch {
+        // args may not be JSON
+      }
+      return {
+        type: "FunctionCall",
+        methodName: action.FunctionCall.method_name,
+        args,
+      };
+    }
+    if (action.Transfer) {
+      return { type: "Transfer" };
+    }
+    return { type: Object.keys(action)[0] || "Unknown" };
+  });
+
+  return { success, receiverId, actions };
+}

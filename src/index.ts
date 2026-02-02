@@ -29,6 +29,8 @@ import intents from "./routes/intents";
 import solAccount from "./routes/solAccount";
 import kaminoPositions from "./routes/kaminoPositions";
 import burrowPositions from "./routes/burrowPositions";
+import aavePositions from "./routes/aavePositions";
+import morphoPositions from "./routes/morphoPositions";
 import orders from "./routes/orders";
 // import permission from "./routes/permission";
 
@@ -62,6 +64,8 @@ app.route("/api/intents", intents);
 app.route("/api/sol-account", solAccount);
 app.route("/api/kamino-positions", kaminoPositions);
 app.route("/api/burrow-positions", burrowPositions);
+app.route("/api/aave-positions", aavePositions);
+app.route("/api/morpho-positions", morphoPositions);
 app.route("/api/orders", orders);
 // app.route("/api/permission", permission);
 

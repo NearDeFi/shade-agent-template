@@ -37,9 +37,11 @@ export const ethContractAbi = [
 
 // Set up a chain signature contract instance
 const MPC_CONTRACT = new contracts.ChainSignatureContract({
-  networkId: `testnet`,
-  contractId: `v1.signer-prod.testnet`,
-});
+  networkId: config.chainSignatureNetwork as "mainnet" | "testnet",
+  contractId: config.chainSignatureContractId,
+  masterPublicKey: config.chainSignatureMpcKey,
+  fallbackRpcUrls: config.nearRpcUrls,
+} as any);
 
 // Set up a public client for the Ethereum network
 const publicClient = createPublicClient({

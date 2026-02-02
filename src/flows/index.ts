@@ -16,6 +16,13 @@ import "./nearSwap";
 import "./orderCreate";
 import "./orderExecute";
 import "./orderCancel";
+import "./solBridgeOut";
+import "./nearBridgeOut";
+import "./evmSwap";
+import "./aaveDeposit";
+import "./aaveWithdraw";
+import "./morphoDeposit";
+import "./morphoWithdraw";
 
 // Re-export registry and types for external use
 export { flowRegistry } from "./registry";
@@ -38,3 +45,10 @@ export { nearSwapFlow } from "./nearSwap";
 export { orderCreateFlow, deriveOrderAgentAddress } from "./orderCreate";
 export { orderExecuteFlow } from "./orderExecute";
 export { orderCancelFlow } from "./orderCancel";
+export { solBridgeOutFlow } from "./solBridgeOut";
+export { nearBridgeOutFlow } from "./nearBridgeOut";
+export { evmSwapFlow } from "./evmSwap";
+export { aaveDepositFlow } from "./aaveDeposit";
+export { aaveWithdrawFlow } from "./aaveWithdraw";
+export { morphoDepositFlow } from "./morphoDeposit";
+export { morphoWithdrawFlow } from "./morphoWithdraw";

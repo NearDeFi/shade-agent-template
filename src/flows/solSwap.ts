@@ -275,7 +275,7 @@ flowRegistry.setDefault(solSwapFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
-export { solSwapFlow };
+export { solSwapFlow, deserializeInstruction, getAddressLookupTableAccounts };
 
 // Legacy export for backwards compatibility
 import { config as globalConfig } from "../config";

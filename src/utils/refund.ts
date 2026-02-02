@@ -23,7 +23,15 @@ import {
   ONE_YOCTO,
   getNearProvider,
 } from "./near";
-import { extractSolanaMintAddress } from "../constants";
+import { extractSolanaMintAddress, extractEvmTokenAddress, ETH_NATIVE_TOKEN } from "../constants";
+import {
+  EvmChainName,
+  deriveEvmAgentAddress,
+  signAndBroadcastEvmTx,
+  getEvmNativeBalance,
+  getEvmTokenBalance,
+} from "./evmChains";
+import { encodeFunctionData, erc20Abi } from "viem";
 
 interface Logger {
   info(...args: unknown[]): void;
@@ -167,4 +175,81 @@ export async function refundNearTokensToUser(
 
   logger.info(`[refund] NEAR refund broadcast: ${txId}`);
   return { txId, amount: balance };
+}
+
+/**
+ * Refund EVM tokens from the agent's derived wallet to the user.
+ *
+ * Derives the agent wallet using `userDestination` as the derivation suffix,
+ * queries the balance (native or ERC-20), and if > 0 transfers to the user.
+ *
+ * @returns `{ txId, amount }` if a transfer was made, `null` if no balance.
+ */
+export async function refundEvmTokensToUser(
+  chain: EvmChainName,
+  intermediateAsset: string,
+  userDestination: string,
+  logger: Logger,
+  dryRun: boolean,
+): Promise<{ txId: string; amount: string } | null> {
+  const agentAddress = await deriveEvmAgentAddress(userDestination);
+  const tokenAddress = extractEvmTokenAddress(intermediateAsset);
+
+  const isNative =
+    tokenAddress.toLowerCase() === ETH_NATIVE_TOKEN.toLowerCase() ||
+    tokenAddress === "0x0000000000000000000000000000000000000000";
+
+  let balance: bigint;
+  if (isNative) {
+    balance = await getEvmNativeBalance(chain, agentAddress);
+    // Reserve gas buffer for the transfer itself
+    const gasBuffer = BigInt(100_000) * BigInt(30_000_000_000);
+    balance = balance > gasBuffer ? balance - gasBuffer : 0n;
+  } else {
+    balance = await getEvmTokenBalance(chain, tokenAddress, agentAddress);
+  }
+
+  if (balance <= 0n) {
+    logger.info(`[refund] No EVM token balance to refund on ${chain}`);
+    return null;
+  }
+
+  logger.info(`[refund] Refunding ${balance} of ${intermediateAsset} on ${chain} to ${userDestination}`);
+
+  if (dryRun) {
+    logger.info("[refund] Dry run — skipping broadcast");
+    return { txId: `dry-run-refund-evm-${chain}`, amount: balance.toString() };
+  }
+
+  let txHash: string;
+  if (isNative) {
+    txHash = await signAndBroadcastEvmTx(
+      chain,
+      {
+        from: agentAddress,
+        to: userDestination,
+        value: `0x${balance.toString(16)}`,
+      },
+      userDestination,
+    );
+  } else {
+    const transferData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [userDestination as `0x${string}`, balance],
+    });
+
+    txHash = await signAndBroadcastEvmTx(
+      chain,
+      {
+        from: agentAddress,
+        to: tokenAddress,
+        data: transferData,
+      },
+      userDestination,
+    );
+  }
+
+  logger.info(`[refund] EVM refund broadcast on ${chain}: ${txHash}`);
+  return { txId: txHash, amount: balance.toString() };
 }

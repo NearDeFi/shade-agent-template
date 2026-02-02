@@ -48,8 +48,7 @@ export class RedisQueueClient {
   async ackIntent(raw: string) {
     const removed = await this.client.lrem(this.processingKey, 1, raw);
     if (removed === 0) {
-      // Fallback: trim oldest processing entry
-      await this.client.ltrim(this.processingKey, 1, -1);
+      console.warn("Failed to ack intent (not found in processing list)");
     }
   }
 

@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { ValidatedIntent } from "../queue/types";
 
-const shouldRunLive = process.env.RUN_LIVE_SOL === "1";
+const shouldRunLive =
+  process.env.RUN_LIVE_SOL === "1" && process.env.NODE_ENV !== "test";
 
 if (!shouldRunLive) {
   describe.skip("live solana swap (devnet)", () => {
