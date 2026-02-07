@@ -43,6 +43,17 @@ vi.mock("./redis", () => ({
   RedisQueueClient: RedisQueueClientMock,
 }));
 
+const testFlowCatalog = {
+  get: () => undefined,
+  has: () => false,
+  getAll: () => [],
+  findMatch: () => undefined,
+};
+
+function validate(intent: IntentMessage) {
+  return validateIntent(intent, testFlowCatalog);
+}
+
 const baseIntent: IntentMessage = {
   intentId: "test-1",
   sourceChain: "near",
@@ -59,28 +70,28 @@ const baseIntent: IntentMessage = {
 describe("consumer validation", () => {
   describe("validateIntent", () => {
     it("accepts a valid intent and applies default slippage", () => {
-      const validated = validateIntent(baseIntent);
+      const validated = validate(baseIntent);
       expect(validated.intentId).toBe("test-1");
       expect(validated.slippageBps).toBeGreaterThan(0);
     });
 
     it("rejects missing required fields", () => {
       expect(() =>
-        validateIntent({
+        validate({
           ...baseIntent,
           intentId: "",
         }),
       ).toThrow(/intentId/);
 
       expect(() =>
-        validateIntent({
+        validate({
           ...baseIntent,
           destinationChain: "near",
         }),
       ).toThrow(/destinationChain/);
 
       expect(() =>
-        validateIntent({
+        validate({
           ...baseIntent,
           sourceAmount: "abc",
         }),
@@ -180,7 +191,7 @@ describe("needsIntentsWait logic", () => {
 
   function needsIntentsWait(intent: ValidatedIntent): boolean {
     // If intents already completed (re-queued by poller), skip waiting
-    if ((intent.metadata as any)?.intentsCompleted) {
+    if (intent.metadata?.intentsCompleted) {
       return false;
     }
 
@@ -279,13 +290,13 @@ describe("intent types", () => {
 
   describe("ValidatedIntent extends IntentMessage", () => {
     it("has required slippageBps field", () => {
-      const validated = validateIntent(baseIntent);
+      const validated = validate(baseIntent);
       expect(typeof validated.slippageBps).toBe("number");
       expect(validated.slippageBps).toBeGreaterThan(0);
     });
 
     it("preserves all original fields", () => {
-      const validated = validateIntent(baseIntent);
+      const validated = validate(baseIntent);
       expect(validated.intentId).toBe(baseIntent.intentId);
       expect(validated.sourceChain).toBe(baseIntent.sourceChain);
       expect(validated.destinationChain).toBe(baseIntent.destinationChain);

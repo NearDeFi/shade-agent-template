@@ -1,15 +1,33 @@
 import { SOL_NATIVE_MINT, WRAP_NEAR_CONTRACT } from "../constants";
 import { IntentMessage, ValidatedIntent } from "./types";
-import { flowRegistry } from "../flows/registry";
+import type { FlowCatalog } from "../flows/catalog";
 
 const DEFAULT_SLIPPAGE_BPS = 300; // 3% fallback if UI omits slippage
+const DEFAULT_DESTINATION_CHAINS: string[] = [
+  "solana",
+  "ethereum",
+  "base",
+  "arbitrum",
+  "bnb",
+];
 
-export function validateIntent(message: IntentMessage): ValidatedIntent {
+export type IntentValidator = (message: IntentMessage) => ValidatedIntent;
+
+export function createIntentValidator(flowCatalog: FlowCatalog): IntentValidator {
+  return (message: IntentMessage) => validateIntent(message, flowCatalog);
+}
+
+export function validateIntent(
+  message: IntentMessage,
+  flowCatalog: FlowCatalog,
+): ValidatedIntent {
+  const catalog = flowCatalog;
+
   if (!message.intentId) throw new Error("intentId missing");
 
   // Look up the flow from registry (if action is specified)
   const action = message.metadata?.action;
-  const flow = typeof action === "string" ? flowRegistry.get(action) : undefined;
+  const flow = typeof action === "string" ? catalog.get(action) : undefined;
 
   // Validate destination chain based on flow's supported chains
   if (flow) {
@@ -21,9 +39,10 @@ export function validateIntent(message: IntentMessage): ValidatedIntent {
     }
   } else {
     // Default: solana or EVM chains for unknown/swap flows
-    const allowedDefaults: string[] = ["solana", "ethereum", "base", "arbitrum", "bnb"];
-    if (!allowedDefaults.includes(message.destinationChain)) {
-      throw new Error(`destinationChain must be one of: ${allowedDefaults.join(", ")}`);
+    if (!DEFAULT_DESTINATION_CHAINS.includes(message.destinationChain)) {
+      throw new Error(
+        `destinationChain must be one of: ${DEFAULT_DESTINATION_CHAINS.join(", ")}`,
+      );
     }
   }
 

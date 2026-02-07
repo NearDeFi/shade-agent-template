@@ -14,8 +14,8 @@ import {
   ONE_YOCTO,
 } from "../utils/near";
 import { getDefuseAssetId } from "../utils/tokenMappings";
+import { getFtBalance } from "../utils/nearRpc";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import { flowRegistry } from "./registry";
 import { logNearAddressInfo } from "./context";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
 
@@ -46,12 +46,19 @@ async function executeBridgeBack(
   }
 
   const tokenId = meta.tokenId;
-  const withdrawnAmount = intent.sourceAmount;
+
+  // Query the actual on-chain token balance instead of using intent.sourceAmount,
+  // since the actual withdrawn amount may differ due to rounding, interest, or fees.
+  const withdrawnAmount = await getFtBalance(tokenId, userAgent.accountId);
+  if (withdrawnAmount === "0") {
+    throw new Error("No tokens available to bridge back after withdrawal");
+  }
 
   logger.info(`Starting bridge back to ${meta.bridgeBack.destinationChain}`, {
     destinationAddress: meta.bridgeBack.destinationAddress,
     destinationAsset: meta.bridgeBack.destinationAsset,
     amount: withdrawnAmount,
+    requestedAmount: intent.sourceAmount,
     tokenId,
   });
 
@@ -195,10 +202,6 @@ const burrowWithdrawFlow: FlowDefinition<BurrowWithdrawMetadata> = {
     return { txId: txHash };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(burrowWithdrawFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

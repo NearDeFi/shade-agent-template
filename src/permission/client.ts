@@ -12,7 +12,10 @@ import { Account } from "@near-js/accounts";
 import { KeyPairSigner } from "@near-js/signers";
 import { parseSeedPhrase } from "near-seed-phrase";
 import bs58 from "bs58";
+import type { FinalExecutionOutcome } from "@near-js/types";
 import { config, isTestnet } from "../config";
+import { extractTxHash } from "../utils/near";
+import { createLogger } from "../utils/logger";
 import type {
   DerivationPath,
   WalletType,
@@ -35,6 +38,8 @@ const nodeUrl = config.nearRpcUrls[0] ||
 // Permission contract ID - needs to be configured
 const PERMISSION_CONTRACT_ID = process.env.PERMISSION_CONTRACT_ID ||
   (isTestnet ? "permission.shade.testnet" : "permission.shade.near");
+
+const log = createLogger("permissionClient");
 
 // Gas constants
 const GAS_FOR_REGISTER = BigInt("50000000000000"); // 50 TGas
@@ -89,7 +94,7 @@ export async function getPermissions(
       args_base64: Buffer.from(JSON.stringify({ derivation_path: derivationPath })).toString("base64"),
     });
 
-    const resultBytes = (result as any).result;
+    const resultBytes = (result as unknown as { result: number[] }).result;
     if (!resultBytes || resultBytes.length === 0) {
       return null;
     }
@@ -123,7 +128,7 @@ export async function getOperation(
       })).toString("base64"),
     });
 
-    const resultBytes = (result as any).result;
+    const resultBytes = (result as unknown as { result: number[] }).result;
     if (!resultBytes || resultBytes.length === 0) {
       return null;
     }
@@ -184,14 +189,15 @@ export async function isOperationAllowed(
       })).toString("base64"),
     });
 
-    const resultBytes = (result as any).result;
+    const resultBytes = (result as unknown as { result: number[] }).result;
     if (!resultBytes || resultBytes.length === 0) {
       return false;
     }
 
     const resultStr = Buffer.from(resultBytes).toString("utf8");
     return JSON.parse(resultStr) as boolean;
-  } catch {
+  } catch (err) {
+    log.debug("isOperationAllowed check failed", { derivationPath, operationId, err: String(err) });
     return false;
   }
 }
@@ -211,14 +217,15 @@ export async function getDerivationPathForWallet(
       args_base64: Buffer.from(JSON.stringify({ chain_address: chainAddress })).toString("base64"),
     });
 
-    const resultBytes = (result as any).result;
+    const resultBytes = (result as unknown as { result: number[] }).result;
     if (!resultBytes || resultBytes.length === 0) {
       return null;
     }
 
     const resultStr = Buffer.from(resultBytes).toString("utf8");
     return JSON.parse(resultStr) as DerivationPath;
-  } catch {
+  } catch (err) {
+    log.debug("getDerivationPathForWallet failed", { chainAddress, err: String(err) });
     return null;
   }
 }
@@ -242,10 +249,9 @@ export async function registerWallet(
     attachedDeposit: BigInt(0),
   });
 
-  const txHash = (result as any).transaction?.hash ||
-    (result as any).transaction_outcome?.id;
+  const txHash = extractTxHash(result as FinalExecutionOutcome);
 
-  console.log(`[permission] Wallet registered: ${txHash}`);
+  log.info(`Wallet registered: ${txHash}`);
   return txHash;
 }
 
@@ -266,8 +272,7 @@ export async function addAllowedOperation(
     attachedDeposit: BigInt(0),
   });
 
-  const txHash = (result as any).transaction?.hash ||
-    (result as any).transaction_outcome?.id;
+  const txHash = extractTxHash(result as FinalExecutionOutcome);
 
   // Extract operation_id from return value
   const returnValue = (result as any).status?.SuccessValue;
@@ -281,7 +286,7 @@ export async function addAllowedOperation(
     }
   }
 
-  console.log(`[permission] Operation added: ${operationId} (${txHash})`);
+  log.info(`Operation added: ${operationId} (${txHash})`);
   return { txHash, operationId };
 }
 
@@ -302,10 +307,9 @@ export async function removeAllowedOperation(
     attachedDeposit: BigInt(0),
   });
 
-  const txHash = (result as any).transaction?.hash ||
-    (result as any).transaction_outcome?.id;
+  const txHash = extractTxHash(result as FinalExecutionOutcome);
 
-  console.log(`[permission] Operation removed: ${args.operation_id} (${txHash})`);
+  log.info(`Operation removed: ${args.operation_id} (${txHash})`);
   return txHash;
 }
 
@@ -318,9 +322,9 @@ export async function signAllowed(
 ): Promise<Uint8Array> {
   const relayer = await getRelayerAccount();
 
-  console.log(`[permission] Requesting signature for operation ${args.operation_id}`);
-  console.log(`[permission] Derivation path: ${args.derivation_path}`);
-  console.log(`[permission] Payload length: ${args.payload.length}`);
+  log.info(`Requesting signature for operation ${args.operation_id}`);
+  log.debug(`Derivation path: ${args.derivation_path}`);
+  log.debug(`Payload length: ${args.payload.length}`);
 
   const result = await relayer.functionCall({
     contractId: PERMISSION_CONTRACT_ID,
@@ -357,7 +361,7 @@ export async function signAllowed(
     throw new Error(`Unknown signature format: ${JSON.stringify(signatureData)}`);
   }
 
-  console.log(`[permission] Signature received, length: ${signature.length}`);
+  log.info(`Signature received, length: ${signature.length}`);
   return signature;
 }
 

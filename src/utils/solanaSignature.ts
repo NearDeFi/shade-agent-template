@@ -2,6 +2,9 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import crypto from "crypto";
 import { PublicKey } from "@solana/web3.js";
+import { createLogger } from "./logger";
+
+const log = createLogger("solanaSig");
 
 /**
  * Solana signature structure for intent authorization
@@ -69,7 +72,7 @@ export function verifySolanaSignature(userSignature: SolanaUserSignature): boole
     // Decode public key from base58
     const publicKeyBytes = bs58.decode(userSignature.publicKey);
     if (publicKeyBytes.length !== 32) {
-      console.error(`Invalid public key length: expected 32 bytes, got ${publicKeyBytes.length}`);
+      log.error("Invalid public key length", { expected: 32, got: publicKeyBytes.length });
       return false;
     }
 
@@ -79,7 +82,7 @@ export function verifySolanaSignature(userSignature: SolanaUserSignature): boole
     // Verify the Ed25519 signature
     return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
   } catch (error) {
-    console.error("Solana signature verification failed:", error);
+    log.error("Solana signature verification failed", { err: String(error) });
     return false;
   }
 }

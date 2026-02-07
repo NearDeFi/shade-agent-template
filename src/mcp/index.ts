@@ -27,8 +27,11 @@
 
 import "dotenv/config";
 import { startMcpServer } from "./server";
+import { createLogger } from "../utils/logger";
+
+const log = createLogger("mcp");
 
 startMcpServer().catch((error) => {
-  console.error("[MCP] Fatal error:", error);
+  log.error("Fatal error", { err: String(error) });
   process.exit(1);
 });

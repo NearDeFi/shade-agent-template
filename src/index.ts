@@ -2,22 +2,23 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { swaggerUI } from "@hono/swagger-ui";
-import dotenv from "dotenv";
 import { openApiSpec } from "./openapi";
+import { createLogger } from "./utils/logger";
+import { handleRouteError } from "./routes/errorHandling";
 
-// Import flows first to trigger self-registration before consumer starts
-import "./flows";
+const log = createLogger("server");
 
 import { startQueueConsumer } from "./queue/consumer";
 import { startIntentsPoller } from "./queue/intentsPoller";
 import { startOrderPoller } from "./queue/orderPoller";
+import type { BackgroundTaskHandle } from "./queue/runtime";
 import { config } from "./config";
-import { flowRegistry } from "./flows";
+import {
+  flowCatalog,
+  intentValidator,
+} from "./queue/flowCatalog";
 
-// Load environment variables from .env file (only needed for local development)
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config({ path: ".env.development.local" });
-}
+// dotenv is loaded by config.ts at import time; no need to call it again here
 
 // Import routes
 import ethAccount from "./routes/ethAccount";
@@ -36,10 +37,12 @@ import orders from "./routes/orders";
 
 const app = new Hono();
 
-// Configure CORS - allow all origins for API access
+app.onError((err, c) => handleRouteError(c, err, log));
+
+// Configure CORS - wildcard by default, optional allow-list via CORS_ALLOWED_ORIGINS.
 app.use(
   cors({
-    origin: "*",
+    origin: config.corsAllowedOrigins.length > 0 ? config.corsAllowedOrigins : "*",
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
   })
@@ -73,27 +76,79 @@ app.route("/api/orders", orders);
 const port = Number(process.env.PORT || "3000");
 
 // Log registered flows
-const registeredFlows = flowRegistry.getAll();
-console.log(`Registered ${registeredFlows.length} flows: ${registeredFlows.map((f) => f.action).join(", ")}`);
+const registeredFlows = flowCatalog.getAll();
+log.info(`Registered ${registeredFlows.length} flows: ${registeredFlows.map((f) => f.action).join(", ")}`);
 
-console.log(`App is running on port ${port}`);
+log.info(`App is running on port ${port}`);
 
-serve({ fetch: app.fetch, port });
+const server = serve({ fetch: app.fetch, port });
+const backgroundTasks: BackgroundTaskHandle[] = [];
+
+async function shutdown(signal: string) {
+  log.info(`Received ${signal}, shutting down`);
+
+  const stoppedTasks = await Promise.allSettled(
+    backgroundTasks.map((task) => task.stop()),
+  );
+  for (const [idx, result] of stoppedTasks.entries()) {
+    if (result.status === "rejected") {
+      log.error(`Background task ${idx} failed to stop`, {
+        err: String(result.reason),
+      });
+    }
+  }
+
+  await new Promise<void>((resolve) => {
+    const closable = server as unknown as {
+      close?: (cb?: (err?: Error) => void) => void;
+    };
+    if (typeof closable.close !== "function") {
+      resolve();
+      return;
+    }
+    closable.close(() => resolve());
+  });
+
+  process.exit(0);
+}
+
+let isShuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    shutdown(signal).catch((err) => {
+      log.error("Shutdown failed", { err: String(err) });
+      process.exit(1);
+    });
+  });
+}
 
 if (config.enableQueue) {
-  startQueueConsumer().catch((err) => {
-    console.error("Failed to start queue consumer", err);
-  });
+  try {
+    backgroundTasks.push(
+      startQueueConsumer({
+        flowCatalog,
+        validateIntent: intentValidator,
+      }),
+    );
+  } catch (err) {
+    log.error("Failed to start queue consumer", { err: String(err) });
+  }
 
   // Start the intents poller to monitor cross-chain swaps
-  startIntentsPoller().catch((err) => {
-    console.error("Failed to start intents poller", err);
-  });
+  try {
+    backgroundTasks.push(startIntentsPoller());
+  } catch (err) {
+    log.error("Failed to start intents poller", { err: String(err) });
+  }
 
   // Start the order poller to monitor prices for conditional orders
-  startOrderPoller().catch((err) => {
-    console.error("Failed to start order poller", err);
-  });
+  try {
+    backgroundTasks.push(startOrderPoller());
+  } catch (err) {
+    log.error("Failed to start order poller", { err: String(err) });
+  }
 } else {
-  console.log("Queue consumer disabled (enable via ENABLE_QUEUE=true)");
+  log.info("Queue consumer disabled (enable via ENABLE_QUEUE=true)");
 }

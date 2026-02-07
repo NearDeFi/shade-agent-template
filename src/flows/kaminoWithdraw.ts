@@ -1,6 +1,5 @@
 import {
   VersionedTransaction,
-  Connection,
   TransactionMessage,
   PublicKey,
   SystemProgram,
@@ -9,6 +8,7 @@ import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
   getAssociatedTokenAddress,
+  getAccount,
 } from "@solana/spl-token";
 import { createSolanaRpc, address, Address } from "@solana/kit";
 import {
@@ -22,6 +22,7 @@ import { KaminoWithdrawMetadata, ValidatedIntent } from "../queue/types";
 import {
   deriveAgentPublicKey,
   SOLANA_DEFAULT_PATH,
+  getSolanaConnection,
   signAndBroadcastDualSigner,
 } from "../utils/solana";
 import { createDummySigner } from "../utils/chainSignature";
@@ -29,7 +30,6 @@ import { validateSolanaWithdrawAuthorization } from "../utils/authorization";
 import { SOL_NATIVE_MINT } from "../constants";
 import { getDefuseAssetId, getSolDefuseAssetId } from "../utils/tokenMappings";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import { flowRegistry } from "./registry";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
 
 // ─── @solana/kit Instruction Types ──────────────────────────────────────────────
@@ -125,7 +125,7 @@ async function buildKaminoWithdrawTransaction(
   logger.debug(`Total instructions after filtering: ${instructions.length}`);
 
   // For broadcasting via @solana/web3.js, we need to convert the transaction
-  const connection = new Connection(config.solRpcUrl, "confirmed");
+  const connection = getSolanaConnection();
   const { blockhash } = await connection.getLatestBlockhash();
 
   // Convert kit instructions to web3.js instructions
@@ -169,12 +169,35 @@ async function executeBridgeBack(
   }
 
   const mintAddress = meta.mintAddress;
-  const withdrawnAmount = intent.sourceAmount;
+
+  // Query the actual on-chain token balance instead of using intent.sourceAmount,
+  // since the actual withdrawn amount may differ due to rounding, interest, or fees.
+  const userAgentPublicKey = await deriveAgentPublicKey(
+    SOLANA_DEFAULT_PATH,
+    intent.userDestination,
+  );
+  const connection = getSolanaConnection();
+  const mintPubkey = new PublicKey(mintAddress);
+  let withdrawnAmount: string;
+
+  if (mintAddress === SOL_NATIVE_MINT) {
+    const lamports = await connection.getBalance(userAgentPublicKey);
+    withdrawnAmount = lamports.toString();
+  } else {
+    const ata = await getAssociatedTokenAddress(mintPubkey, userAgentPublicKey);
+    const account = await getAccount(connection, ata);
+    withdrawnAmount = account.amount.toString();
+  }
+
+  if (withdrawnAmount === "0") {
+    throw new Error("No tokens available to bridge back after withdrawal");
+  }
 
   logger.info(`Starting bridge back to ${meta.bridgeBack.destinationChain}`, {
     destinationAddress: meta.bridgeBack.destinationAddress,
     destinationAsset: meta.bridgeBack.destinationAsset,
     amount: withdrawnAmount,
+    requestedAmount: intent.sourceAmount,
     mintAddress,
   });
 
@@ -194,12 +217,6 @@ async function executeBridgeBack(
   const { depositAddress } = await getIntentsQuote(quoteRequest, config);
 
   const feePayerPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
-  const userAgentPublicKey = await deriveAgentPublicKey(
-    SOLANA_DEFAULT_PATH,
-    intent.userDestination,
-  );
-
-  const connection = new Connection(config.solRpcUrl, "confirmed");
   const { blockhash } = await connection.getLatestBlockhash();
 
   let transferIx;
@@ -338,10 +355,6 @@ const kaminoWithdrawFlow: FlowDefinition<KaminoWithdrawMetadata> = {
     return { txId };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(kaminoWithdrawFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

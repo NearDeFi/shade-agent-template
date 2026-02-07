@@ -27,7 +27,6 @@ import {
   signWithNearChainSignatures,
   createDummySigner,
 } from "../utils/chainSignature";
-import { flowRegistry } from "./registry";
 import { logSolanaIntentsInfo } from "./context";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
@@ -89,13 +88,23 @@ async function sendSignedTransaction(
     preflightCommitment: "confirmed",
   }).send();
 
-  // Wait for confirmation
-  const { value: statuses } = await rpc.getSignatureStatuses([signature]).send();
-  if (statuses[0]?.err) {
-    throw new Error(`Transaction failed: ${JSON.stringify(statuses[0].err)}`);
+  // Poll for confirmation with retries (getSignatureStatuses is non-blocking)
+  const maxAttempts = 30;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { value: statuses } = await rpc.getSignatureStatuses([signature]).send();
+    const status = statuses[0];
+    if (status) {
+      if (status.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
+      }
+      // Transaction confirmed successfully
+      return signature;
+    }
+    // Not yet processed, wait before retrying
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
-  return signature;
+  throw new Error(`Transaction confirmation timed out after ${maxAttempts}s for ${signature}`);
 }
 
 /**
@@ -397,10 +406,6 @@ const kaminoDepositFlow: FlowDefinition<KaminoDepositMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(kaminoDepositFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

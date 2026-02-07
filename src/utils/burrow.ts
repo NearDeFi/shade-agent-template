@@ -1,5 +1,8 @@
 import { isTestnet } from "../config";
 import { nearViewCall, getFtMetadata, FtMetadata } from "./nearRpc";
+import { createLogger } from "./logger";
+
+const log = createLogger("burrow");
 
 // Burrow contract addresses
 export const BURROW_CONTRACT = isTestnet
@@ -183,7 +186,8 @@ export async function getBurrowAccount(accountId: string): Promise<BurrowAccount
     }
 
     return result.data;
-  } catch {
+  } catch (err) {
+    log.warn(`getBurrowAccount failed for ${accountId}`, { err: String(err) });
     return null;
   }
 }
@@ -291,7 +295,7 @@ export async function listBurrowMarkets(): Promise<BurrowMarket[]> {
         extraDecimals,
       });
     } catch (err) {
-      console.warn(`Failed to fetch metadata for ${asset.token_id}:`, err);
+      log.warn(`Failed to fetch metadata for ${asset.token_id}`, { err: String(err) });
     }
   }
 
@@ -395,7 +399,9 @@ export async function getUserPositions(accountId: string): Promise<BurrowUserPos
 
       // For health factor calculation
       adjustedCollateralUsd += collateralUsd * volatilityRatio;
-      adjustedBorrowedUsd += borrowedUsd / volatilityRatio;
+      if (volatilityRatio > 0) {
+        adjustedBorrowedUsd += borrowedUsd / volatilityRatio;
+      }
 
       positions.push({
         tokenId,
@@ -409,7 +415,7 @@ export async function getUserPositions(accountId: string): Promise<BurrowUserPos
         borrowedBalanceUsd: borrowedUsd,
       });
     } catch (err) {
-      console.warn(`Failed to process position for ${tokenId}:`, err);
+      log.warn(`Failed to process position for ${tokenId}`, { err: String(err) });
     }
   }
 

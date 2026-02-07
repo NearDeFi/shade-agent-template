@@ -4,8 +4,13 @@ import {
   SOLANA_DEFAULT_PATH,
   SolanaAdapter,
 } from "../utils/solana";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError } from "./errorHandling";
 
+const log = createLogger("solAccount");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
 app.get("/", async (c) => {
   try {
@@ -24,8 +29,9 @@ app.get("/", async (c) => {
       balanceSol,
     });
   } catch (error) {
-    console.error("Error getting Solana agent address:", error);
-    return c.json({ error: (error as Error).message }, 500);
+    throw new AppError("operation_failed", (error as Error).message, {
+      cause: error,
+    });
   }
 });
 

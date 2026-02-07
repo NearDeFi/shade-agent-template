@@ -1,7 +1,8 @@
 // @ts-nocheck
-import { contracts, chainAdapters } from "chainsig.js";
+import { chainAdapters } from "chainsig.js";
 import { createPublicClient, http } from "viem";
 import { config } from "../config";
+import { chainSignatureContract } from "../infra/chainSignature";
 
 export const ethRpcUrl = config.ethRpcUrl;
 export const ethContractAddress = config.ethContractAddress;
@@ -35,14 +36,6 @@ export const ethContractAbi = [
   },
 ] as const;
 
-// Set up a chain signature contract instance
-const MPC_CONTRACT = new contracts.ChainSignatureContract({
-  networkId: config.chainSignatureNetwork as "mainnet" | "testnet",
-  contractId: config.chainSignatureContractId,
-  masterPublicKey: config.chainSignatureMpcKey,
-  fallbackRpcUrls: config.nearRpcUrls,
-} as any);
-
 // Set up a public client for the Ethereum network
 const publicClient = createPublicClient({
   transport: http(ethRpcUrl),
@@ -51,5 +44,5 @@ const publicClient = createPublicClient({
 // Set up a chain signatures chain adapter for the Ethereum network
 export const Evm = new chainAdapters.evm.EVM({
   publicClient,
-  contract: MPC_CONTRACT,
+  contract: chainSignatureContract,
 }) as any;

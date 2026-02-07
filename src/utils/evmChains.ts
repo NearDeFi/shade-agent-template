@@ -5,6 +5,9 @@ import { mainnet, base, arbitrum, bsc } from "viem/chains";
 import { requestSignature } from "@neardefi/shade-agent-js";
 import { config } from "../config";
 import { ETH_NATIVE_TOKEN } from "../constants";
+import { createLogger } from "./logger";
+
+const log = createLogger("evmChains");
 
 const { toRSV, uint8ArrayToHex } = utils.cryptography;
 
@@ -272,5 +275,5 @@ function mapChainId(chainId: number): EvmChainName | undefined {
 // ─── Startup Warning ──────────────────────────────────────────────────────────
 
 if (!config.zeroExApiKey) {
-  console.warn("[evmChains] ZERO_EX_API_KEY is not set; EVM swap quotes will fail");
+  log.warn("ZERO_EX_API_KEY is not set; EVM swap quotes will fail");
 }

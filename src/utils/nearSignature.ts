@@ -2,6 +2,9 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import crypto from "crypto";
 import { UserSignature, NearUserSignature, LegacyUserSignature } from "../queue/types";
+import { createLogger } from "./logger";
+
+const log = createLogger("nearSig");
 
 /**
  * NEP-413 Payload structure for message signing
@@ -161,14 +164,14 @@ export function verifyNearSignature(userSignature: UserSignature): boolean {
   try {
     // Check if this is a NEAR signature
     if (!isNearSignature(userSignature)) {
-      console.error("Signature is not a NEAR NEP-413 signature (missing nonce/recipient)");
+      log.error("Signature is not a NEAR NEP-413 signature (missing nonce/recipient)");
       return false;
     }
 
     // Decode the nonce from base64
     const nonceBytes = new Uint8Array(Buffer.from(userSignature.nonce, "base64"));
     if (nonceBytes.length !== 32) {
-      console.error(`Invalid nonce length: expected 32 bytes, got ${nonceBytes.length}`);
+      log.error("Invalid nonce length", { expected: 32, got: nonceBytes.length });
       return false;
     }
 
@@ -193,7 +196,7 @@ export function verifyNearSignature(userSignature: UserSignature): boolean {
     // Verify the signature against the hash
     return nacl.sign.detached.verify(new Uint8Array(hash), signatureBytes, publicKeyBytes);
   } catch (error) {
-    console.error("Signature verification failed:", error);
+    log.error("Signature verification failed", { err: String(error) });
     return false;
   }
 }

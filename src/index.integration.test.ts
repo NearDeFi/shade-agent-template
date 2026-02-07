@@ -237,7 +237,7 @@ describe("integration: API routes", () => {
   });
 
   it("handles transaction request end-to-end with mocks", async () => {
-    const res = await app.request("/api/transaction");
+    const res = await app.request("/api/transaction", { method: "POST" });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.txHash).toBe("0xhash");

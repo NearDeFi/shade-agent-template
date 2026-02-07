@@ -1,5 +1,5 @@
 import { encodeFunctionData, erc20Abi, maxUint256 } from "viem";
-import { extractEvmTokenAddress, ETH_NATIVE_TOKEN } from "../constants";
+import { extractEvmTokenAddress } from "../constants";
 import { EvmSwapMetadata, ValidatedIntent } from "../queue/types";
 import {
   EVM_SWAP_CHAINS,
@@ -12,19 +12,10 @@ import {
   EVM_CHAIN_CONFIGS,
 } from "../utils/evmChains";
 import { fetchWithRetry } from "../utils/http";
-import { flowRegistry } from "./registry";
 import { requireUserDestination } from "../utils/authorization";
 import { config } from "../config";
+import { isNativeEvmToken as isNativeToken } from "../utils/common";
 import type { FlowDefinition, FlowContext, FlowResult, Logger } from "./types";
-
-// ─── Helper Functions ──────────────────────────────────────────────────────────
-
-function isNativeToken(address: string): boolean {
-  return (
-    address.toLowerCase() === ETH_NATIVE_TOKEN.toLowerCase() ||
-    address === "0x0000000000000000000000000000000000000000"
-  );
-}
 
 /**
  * Fetches a 0x swap quote for the given parameters.
@@ -266,9 +257,12 @@ const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
           : 800_000_000_000_000                         // ~0.0008 ETH (L2s)
       );
       const rawBigInt = BigInt(rawAmount);
-      sellAmount = rawBigInt > GAS_RESERVE_WEI
-        ? (rawBigInt - GAS_RESERVE_WEI).toString()
-        : rawAmount;
+      if (rawBigInt <= GAS_RESERVE_WEI) {
+        throw new Error(
+          `Insufficient native token amount (${rawAmount} wei) to cover gas reserve of ${GAS_RESERVE_WEI} wei on ${chain}`,
+        );
+      }
+      sellAmount = (rawBigInt - GAS_RESERVE_WEI).toString();
 
       logger.info(`[evmSwap] Gas reserve deducted from native sell amount`, {
         chain,
@@ -354,10 +348,6 @@ const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(evmSwapFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

@@ -6,7 +6,6 @@ import {
   signAndBroadcastEvmTx,
 } from "../utils/evmChains";
 import { transferEvmTokensToUser, executeEvmBridgeBack } from "../utils/evmLending";
-import { flowRegistry } from "./registry";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowResult } from "./types";
 
@@ -149,10 +148,6 @@ const aaveWithdrawFlow: FlowDefinition<AaveWithdrawMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ──────────────────────────────────────────────────────────
-
-flowRegistry.register(aaveWithdrawFlow);
 
 // ─── Exports ────────────────────────────────────────────────────────────────────
 

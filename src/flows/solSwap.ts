@@ -1,6 +1,4 @@
 import {
-  AddressLookupTableAccount,
-  Connection,
   PublicKey,
   TransactionInstruction,
   TransactionMessage,
@@ -19,50 +17,12 @@ import {
   SOLANA_DEFAULT_PATH,
   getSolanaConnection,
   signAndBroadcastSingleSigner,
+  deserializeInstruction,
+  getAddressLookupTableAccounts,
 } from "../utils/solana";
 import { fetchWithRetry } from "../utils/http";
-import { flowRegistry } from "./registry";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
-
-// ─── Helper Functions ──────────────────────────────────────────────────────────
-
-function deserializeInstruction(instruction: {
-  programId: string;
-  accounts: Array<{ pubkey: string; isSigner: boolean; isWritable: boolean }>;
-  data: string;
-}): TransactionInstruction {
-  return new TransactionInstruction({
-    programId: new PublicKey(instruction.programId),
-    keys: instruction.accounts.map((acc) => ({
-      pubkey: new PublicKey(acc.pubkey),
-      isSigner: acc.isSigner,
-      isWritable: acc.isWritable,
-    })),
-    data: Buffer.from(instruction.data, "base64"),
-  });
-}
-
-async function getAddressLookupTableAccounts(
-  connection: Connection,
-  addresses: string[],
-): Promise<AddressLookupTableAccount[]> {
-  if (addresses.length === 0) return [];
-
-  const accounts = await connection.getMultipleAccountsInfo(
-    addresses.map((addr) => new PublicKey(addr)),
-  );
-
-  return accounts
-    .map((account, index) => {
-      if (!account) return null;
-      return new AddressLookupTableAccount({
-        key: new PublicKey(addresses[index]),
-        state: AddressLookupTableAccount.deserialize(account.data),
-      });
-    })
-    .filter((account): account is AddressLookupTableAccount => account !== null);
-}
 
 async function buildJupiterSwapTransaction(
   intent: ValidatedIntent,
@@ -83,16 +43,30 @@ async function buildJupiterSwapTransaction(
 
   const rawAmount = intent.intermediateAmount || intent.destinationAmount || intent.sourceAmount;
 
-  const ATA_RENT_LAMPORTS = BigInt(2_100_000);
-  const rawAmountBigInt = BigInt(rawAmount);
-  const swapAmount = rawAmountBigInt > ATA_RENT_LAMPORTS
-    ? (rawAmountBigInt - ATA_RENT_LAMPORTS).toString()
-    : rawAmount;
+  // Only reserve lamports for ATA rent when the input token is native SOL.
+  // For SPL tokens the units are token-specific (e.g. 6-decimal USDC),
+  // so subtracting lamport amounts would deduct the wrong value.
+  const SOL_NATIVE = "So11111111111111111111111111111111111111112";
+  const isNativeSolInput = inputMint === SOL_NATIVE;
+
+  let swapAmount: string;
+  if (isNativeSolInput) {
+    const ATA_RENT_LAMPORTS = BigInt(2_100_000);
+    const rawAmountBigInt = BigInt(rawAmount);
+    if (rawAmountBigInt <= ATA_RENT_LAMPORTS) {
+      throw new Error(
+        `Insufficient SOL amount (${rawAmount} lamports) to cover ATA rent reserve of ${ATA_RENT_LAMPORTS} lamports`,
+      );
+    }
+    swapAmount = (rawAmountBigInt - ATA_RENT_LAMPORTS).toString();
+  } else {
+    swapAmount = rawAmount;
+  }
 
   logger.debug(`Amount adjustment for ATA rent`, {
     rawAmount,
     swapAmount,
-    reserved: ATA_RENT_LAMPORTS.toString(),
+    isNativeSolInput,
   });
 
   const amount = swapAmount;
@@ -268,14 +242,9 @@ const solSwapFlow: FlowDefinition<Record<string, unknown>> = {
   },
 };
 
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(solSwapFlow);
-flowRegistry.setDefault(solSwapFlow);
-
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
-export { solSwapFlow, deserializeInstruction, getAddressLookupTableAccounts };
+export { solSwapFlow };
 
 // Legacy export for backwards compatibility
 import { config as globalConfig } from "../config";
@@ -286,7 +255,9 @@ export async function executeSolanaSwapFlow(
 ): Promise<FlowResult> {
   const ctx = createFlowContext({ intentId: intent.intentId, config: globalConfig });
   if (solSwapFlow.validateAuthorization) {
+    // `as any` justified: legacy wrapper, caller must provide correct metadata shape
     await solSwapFlow.validateAuthorization(intent as any, ctx);
   }
+  // `as any` justified: legacy wrapper, caller must provide correct metadata shape
   return solSwapFlow.execute(intent as any, ctx);
 }

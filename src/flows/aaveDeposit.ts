@@ -8,7 +8,6 @@ import {
   getEvmTokenBalance,
 } from "../utils/evmChains";
 import { ensureErc20Allowance } from "../utils/evmLending";
-import { flowRegistry } from "./registry";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowResult } from "./types";
 
@@ -142,10 +141,6 @@ const aaveDepositFlow: FlowDefinition<AaveDepositMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ──────────────────────────────────────────────────────────
-
-flowRegistry.register(aaveDepositFlow);
 
 // ─── Exports ────────────────────────────────────────────────────────────────────
 

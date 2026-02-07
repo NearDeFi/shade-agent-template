@@ -1,6 +1,9 @@
 import Redis from "ioredis";
 import { config } from "../config";
 import { IntentMessage } from "./types";
+import { createLogger } from "../utils/logger";
+
+const log = createLogger("queueRedis");
 
 const PROCESSING_SUFFIX = ":processing";
 
@@ -15,7 +18,7 @@ export class RedisQueueClient {
     });
     this.processingKey = `${config.redisQueueKey}${PROCESSING_SUFFIX}`;
     this.client.on("error", (err) => {
-      console.error("Redis connection error", err);
+      log.error("Redis connection error", { err: String(err) });
     });
   }
 
@@ -40,7 +43,7 @@ export class RedisQueueClient {
       const intent = JSON.parse(res) as IntentMessage;
       return { intent, raw: res };
     } catch (err) {
-      console.error("Failed to parse intent message", err, res);
+      log.error("Failed to parse intent message", { err: String(err), raw: res });
       return { intent: null, raw: res };
     }
   }
@@ -48,11 +51,19 @@ export class RedisQueueClient {
   async ackIntent(raw: string) {
     const removed = await this.client.lrem(this.processingKey, 1, raw);
     if (removed === 0) {
-      console.warn("Failed to ack intent (not found in processing list)");
+      log.warn("Failed to ack intent (not found in processing list)");
     }
   }
 
   async moveToDeadLetter(raw: string) {
     await this.client.lpush(config.deadLetterKey, raw);
+  }
+
+  async close() {
+    try {
+      await this.client.quit();
+    } catch {
+      this.client.disconnect();
+    }
   }
 }

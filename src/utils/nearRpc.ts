@@ -1,5 +1,8 @@
 import { config, isTestnet } from "../config";
 import { fetchWithRetry } from "./http";
+import { createLogger } from "./logger";
+
+const log = createLogger("nearRpc");
 
 const DEFAULT_NEAR_RPC = isTestnet
   ? "https://rpc.testnet.near.org"
@@ -127,7 +130,8 @@ export async function getFtBalance(
       account_id: accountId,
     });
     return balance;
-  } catch {
+  } catch (err) {
+    log.warn(`getFtBalance failed for ${tokenContractId}/${accountId}`, { err: String(err) });
     return "0";
   }
 }

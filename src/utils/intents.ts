@@ -4,9 +4,12 @@
 
 import {
   OneClickService,
-  OpenAPI,
 } from "@defuse-protocol/one-click-sdk-typescript";
 import type { AppConfig } from "../flows/types";
+import { createLogger } from "./logger";
+import { ensureIntentsApiBase } from "../infra/intentsApi";
+
+const log = createLogger("intents");
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -53,12 +56,9 @@ export interface IntentsQuoteResult {
  */
 export async function getIntentsQuote(
   request: IntentsQuoteRequest,
-  config: AppConfig,
+  _config: AppConfig,
 ): Promise<IntentsQuoteResult> {
-  // Configure API base URL if provided
-  if (config.intentsQuoteUrl) {
-    OpenAPI.BASE = config.intentsQuoteUrl;
-  }
+  ensureIntentsApiBase();
 
   const deadline = request.deadline ?? new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
@@ -77,7 +77,7 @@ export async function getIntentsQuote(
     deadline,
   };
 
-  console.log("[intents] Requesting quote", quoteRequest);
+  log.info("Requesting quote", { quoteRequest: quoteRequest as unknown as Record<string, unknown> });
 
   const quoteResponse = await OneClickService.getQuote(quoteRequest as any);
 
@@ -86,7 +86,7 @@ export async function getIntentsQuote(
     throw new Error("Intents quote response missing depositAddress");
   }
 
-  console.log(`[intents] Got deposit address: ${depositAddress}`);
+  log.info("Got deposit address", { depositAddress });
 
   return { depositAddress, quoteResponse };
 }

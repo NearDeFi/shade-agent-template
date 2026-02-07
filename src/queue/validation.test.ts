@@ -47,20 +47,21 @@ const { mockFlows } = vi.hoisted(() => {
   };
 });
 
-// Mock the flowRegistry module
-vi.mock("../flows/registry", () => ({
-  flowRegistry: {
-    get: (action: string) => mockFlows[action],
-    has: (action: string) => action in mockFlows,
-    getAll: () => Object.values(mockFlows),
-    findMatch: (intent: any) => {
-      const action = intent.metadata?.action;
-      return action ? mockFlows[action] : undefined;
-    },
-  },
-}));
-
 import { validateIntent } from "./validation";
+
+const testFlowCatalog = {
+  get: (action: string) => mockFlows[action],
+  has: (action: string) => action in mockFlows,
+  getAll: () => Object.values(mockFlows),
+  findMatch: (intent: any) => {
+    const action = intent.metadata?.action;
+    return action ? mockFlows[action] : undefined;
+  },
+};
+
+function validate(intent: IntentMessage) {
+  return validateIntent(intent, testFlowCatalog);
+}
 
 const baseIntent: IntentMessage = {
   intentId: "test-intent",
@@ -77,24 +78,24 @@ const baseIntent: IntentMessage = {
 describe("validateIntent", () => {
   describe("basic validation", () => {
     it("fills default slippage when omitted", () => {
-      const validated = validateIntent(baseIntent);
+      const validated = validate(baseIntent);
       expect(validated.slippageBps).toBe(300);
     });
 
     it("fills default intermediate asset when omitted", () => {
-      const validated = validateIntent(baseIntent);
+      const validated = validate(baseIntent);
       expect(validated.intermediateAsset).toBe(
         "So11111111111111111111111111111111111111112",
       );
     });
 
     it("preserves provided slippage", () => {
-      const validated = validateIntent({ ...baseIntent, slippageBps: 50 });
+      const validated = validate({ ...baseIntent, slippageBps: 50 });
       expect(validated.slippageBps).toBe(50);
     });
 
     it("preserves provided intermediate asset", () => {
-      const validated = validateIntent({
+      const validated = validate({
         ...baseIntent,
         intermediateAsset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       });
@@ -107,37 +108,37 @@ describe("validateIntent", () => {
   describe("required field validation", () => {
     it("rejects missing intentId", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, intentId: "" }),
+        validate({ ...baseIntent, intentId: "" }),
       ).toThrow(/intentId/);
     });
 
     it("rejects missing userDestination", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, userDestination: "" }),
+        validate({ ...baseIntent, userDestination: "" }),
       ).toThrow(/userDestination/);
     });
 
     it("rejects missing agentDestination", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, agentDestination: "" }),
+        validate({ ...baseIntent, agentDestination: "" }),
       ).toThrow(/agentDestination/);
     });
 
     it("rejects missing sourceAsset", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAsset: "" }),
+        validate({ ...baseIntent, sourceAsset: "" }),
       ).toThrow(/sourceAsset/);
     });
 
     it("rejects missing finalAsset", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, finalAsset: "" }),
+        validate({ ...baseIntent, finalAsset: "" }),
       ).toThrow(/finalAsset/);
     });
 
     it("rejects non-solana destination", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, destinationChain: "near" }),
+        validate({ ...baseIntent, destinationChain: "near" }),
       ).toThrow(/destinationChain/);
     });
   });
@@ -145,44 +146,44 @@ describe("validateIntent", () => {
   describe("sourceAmount validation", () => {
     it("rejects non-numeric sourceAmount", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAmount: "1.5" }),
+        validate({ ...baseIntent, sourceAmount: "1.5" }),
       ).toThrow(/sourceAmount/);
     });
 
     it("rejects empty sourceAmount", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAmount: "" }),
+        validate({ ...baseIntent, sourceAmount: "" }),
       ).toThrow(/sourceAmount/);
     });
 
     it("rejects negative sourceAmount", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAmount: "-100" }),
+        validate({ ...baseIntent, sourceAmount: "-100" }),
       ).toThrow(/sourceAmount/);
     });
 
     it("rejects zero sourceAmount", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAmount: "0" }),
+        validate({ ...baseIntent, sourceAmount: "0" }),
       ).toThrow(/sourceAmount.*positive/i);
     });
 
     it("rejects sourceAmount with letters", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAmount: "100abc" }),
+        validate({ ...baseIntent, sourceAmount: "100abc" }),
       ).toThrow(/sourceAmount/);
     });
 
     it("rejects sourceAmount exceeding max value", () => {
       const hugeAmount = (2n ** 129n).toString();
       expect(() =>
-        validateIntent({ ...baseIntent, sourceAmount: hugeAmount }),
+        validate({ ...baseIntent, sourceAmount: hugeAmount }),
       ).toThrow(/sourceAmount.*maximum/i);
     });
 
     it("accepts large valid sourceAmount", () => {
       const largeAmount = (2n ** 64n).toString();
-      const validated = validateIntent({ ...baseIntent, sourceAmount: largeAmount });
+      const validated = validate({ ...baseIntent, sourceAmount: largeAmount });
       expect(validated.sourceAmount).toBe(largeAmount);
     });
   });
@@ -190,18 +191,18 @@ describe("validateIntent", () => {
   describe("destinationAmount validation", () => {
     it("rejects non-numeric destinationAmount", () => {
       expect(() =>
-        validateIntent({ ...baseIntent, destinationAmount: "abc" }),
+        validate({ ...baseIntent, destinationAmount: "abc" }),
       ).toThrow(/destinationAmount/);
     });
 
     it("allows undefined destinationAmount", () => {
       const { destinationAmount, ...intentWithoutDestAmount } = baseIntent;
-      const validated = validateIntent(intentWithoutDestAmount as IntentMessage);
+      const validated = validate(intentWithoutDestAmount as IntentMessage);
       expect(validated.destinationAmount).toBeUndefined();
     });
 
     it("accepts valid numeric destinationAmount", () => {
-      const validated = validateIntent({ ...baseIntent, destinationAmount: "500000" });
+      const validated = validate({ ...baseIntent, destinationAmount: "500000" });
       expect(validated.destinationAmount).toBe("500000");
     });
   });
@@ -214,7 +215,7 @@ describe("validateIntent", () => {
     };
 
     it("accepts valid kamino deposit intent", () => {
-      const validated = validateIntent({
+      const validated = validate({
         ...baseIntent,
         metadata: kaminoDepositMetadata,
       });
@@ -228,7 +229,7 @@ describe("validateIntent", () => {
         mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       };
       expect(() =>
-        validateIntent({ ...baseIntent, metadata: invalidMeta }),
+        validate({ ...baseIntent, metadata: invalidMeta }),
       ).toThrow(/marketAddress/);
     });
 
@@ -239,7 +240,7 @@ describe("validateIntent", () => {
         mintAddress: "",
       };
       expect(() =>
-        validateIntent({ ...baseIntent, metadata: invalidMeta }),
+        validate({ ...baseIntent, metadata: invalidMeta }),
       ).toThrow(/mintAddress/);
     });
 
@@ -249,7 +250,7 @@ describe("validateIntent", () => {
         useIntents: true,
         slippageTolerance: 100,
       };
-      const validated = validateIntent({
+      const validated = validate({
         ...baseIntent,
         metadata: metaWithIntents,
       });
@@ -265,7 +266,7 @@ describe("validateIntent", () => {
     };
 
     it("accepts valid kamino withdraw intent", () => {
-      const validated = validateIntent({
+      const validated = validate({
         ...baseIntent,
         metadata: kaminoWithdrawMetadata,
       });
@@ -279,7 +280,7 @@ describe("validateIntent", () => {
         mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       };
       expect(() =>
-        validateIntent({ ...baseIntent, metadata: invalidMeta }),
+        validate({ ...baseIntent, metadata: invalidMeta }),
       ).toThrow(/marketAddress/);
     });
 
@@ -290,7 +291,7 @@ describe("validateIntent", () => {
         mintAddress: "",
       };
       expect(() =>
-        validateIntent({ ...baseIntent, metadata: invalidMeta }),
+        validate({ ...baseIntent, metadata: invalidMeta }),
       ).toThrow(/mintAddress/);
     });
 
@@ -304,7 +305,7 @@ describe("validateIntent", () => {
           slippageTolerance: 200,
         },
       };
-      const validated = validateIntent({
+      const validated = validate({
         ...baseIntent,
         metadata: metaWithBridge,
       });
@@ -314,7 +315,7 @@ describe("validateIntent", () => {
 
   describe("non-Kamino metadata", () => {
     it("accepts generic metadata without action field", () => {
-      const validated = validateIntent({
+      const validated = validate({
         ...baseIntent,
         metadata: { customField: "value" },
       });
@@ -322,7 +323,7 @@ describe("validateIntent", () => {
     });
 
     it("accepts intent without metadata", () => {
-      const validated = validateIntent(baseIntent);
+      const validated = validate(baseIntent);
       expect(validated.metadata).toBeUndefined();
     });
   });

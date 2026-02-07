@@ -32,11 +32,7 @@ import {
   getEvmTokenBalance,
 } from "./evmChains";
 import { encodeFunctionData, erc20Abi } from "viem";
-
-interface Logger {
-  info(...args: unknown[]): void;
-  error(...args: unknown[]): void;
-}
+import type { Logger } from "./logger";
 
 /**
  * Refund Solana SPL tokens from the agent's derived wallet to the user.
@@ -65,7 +61,8 @@ export async function refundSolanaTokensToUser(
     const account = await getAccount(connection, agentAta);
     balance = account.amount;
   } catch {
-    // ATA doesn't exist or has no balance
+    // ATA doesn't exist or has no balance — expected for new accounts
+    logger.debug("[refund] Solana ATA not found, no balance to refund");
     return null;
   }
 
@@ -141,8 +138,9 @@ export async function refundNearTokensToUser(
         JSON.stringify({ account_id: agentAccount.accountId }),
       ).toString("base64"),
     });
-    balance = JSON.parse(Buffer.from((result as any).result).toString());
-  } catch {
+    balance = JSON.parse(Buffer.from((result as unknown as { result: number[] }).result).toString());
+  } catch (err) {
+    logger.info(`[refund] NEAR ft_balance_of query failed (expected for new accounts)`, { err: String(err) });
     return null;
   }
 

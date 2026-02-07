@@ -8,7 +8,6 @@ import {
   getEvmTokenBalance,
 } from "../utils/evmChains";
 import { ensureErc20Allowance } from "../utils/evmLending";
-import { flowRegistry } from "./registry";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowResult } from "./types";
 
@@ -159,10 +158,6 @@ const morphoDepositFlow: FlowDefinition<MorphoDepositMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ──────────────────────────────────────────────────────────
-
-flowRegistry.register(morphoDepositFlow);
 
 // ─── Exports ────────────────────────────────────────────────────────────────────
 

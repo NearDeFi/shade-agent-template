@@ -21,9 +21,11 @@ import {
 } from "../utils/near";
 import { getDefuseAssetId } from "../utils/tokenMappings";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import { flowRegistry } from "./registry";
 import { logNearAddressInfo } from "./context";
+import { createLogger } from "../utils/logger";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
+
+const log = createLogger("nearBridgeOut");
 
 // Initialize ref-sdk environment
 init_env(isTestnet ? "testnet" : "mainnet");
@@ -104,9 +106,10 @@ async function getFtBalance(tokenId: string, accountId: string): Promise<bigint>
       method_name: "ft_balance_of",
       args_base64: Buffer.from(JSON.stringify({ account_id: accountId })).toString("base64"),
     });
-    const balance = JSON.parse(Buffer.from((result as any).result).toString());
+    const balance = JSON.parse(Buffer.from((result as unknown as { result: number[] }).result).toString());
     return BigInt(balance || "0");
-  } catch {
+  } catch (err) {
+    log.warn(`Failed to get ft_balance_of ${tokenId} for ${accountId}`, { err: String(err) });
     return 0n;
   }
 }
@@ -263,10 +266,6 @@ const nearBridgeOutFlow: FlowDefinition<NearBridgeOutMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(nearBridgeOutFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

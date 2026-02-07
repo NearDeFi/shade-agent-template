@@ -4,13 +4,18 @@ import { KeyPairSigner } from "@near-js/signers";
 import { NEAR } from "@near-js/tokens";
 import { actionCreators, SignedDelegate, Action, encodeDelegateAction, buildDelegateAction, Signature } from "@near-js/transactions";
 import { PublicKey, KeyType } from "@near-js/crypto";
+import type { FinalExecutionOutcome } from "@near-js/types";
 import { config, isTestnet } from "../config";
 import { deriveNearImplicitAccount, NEAR_DEFAULT_PATH } from "./chainSignature";
+import { getNearProvider, extractTxHash } from "./near";
 import { requestSignature } from "@neardefi/shade-agent-js";
 import { utils } from "chainsig.js";
 import { parseSeedPhrase } from "near-seed-phrase";
 import crypto from "crypto";
 import bs58 from "bs58";
+import { createLogger } from "./logger";
+
+const log = createLogger("nearMetaTx");
 
 const { uint8ArrayToHex } = utils.cryptography;
 
@@ -48,15 +53,14 @@ async function getRelayerAccount(): Promise<{ account: Account; publicKey: strin
   const pubKeyBytes = bs58.decode(pubKeyBase58);
   const accountId = Buffer.from(pubKeyBytes).toString("hex");
 
-  console.log("[nearMetaTx] Relayer account from seed phrase:", accountId);
-  console.log("[nearMetaTx] Relayer public key:", publicKey);
+  log.info(`Relayer account from seed phrase: ${accountId}`);
+  log.debug(`Relayer public key: ${publicKey}`);
 
-  // Create signer and provider per @near-js docs
+  // Create signer and use shared provider
   const signer = KeyPairSigner.fromSecretKey(secretKey as `ed25519:${string}`);
-  const provider = new JsonRpcProvider({ url: nodeUrl });
 
   // Create account object
-  const account = new Account(accountId, provider, signer);
+  const account = new Account(accountId, getNearProvider(), signer);
 
   cachedRelayer = { account, publicKey };
   return cachedRelayer;
@@ -81,7 +85,7 @@ export async function ensureImplicitAccountExists(
       finality: "final",
       account_id: accountId,
     });
-    console.log(`[nearMetaTx] Implicit account ${accountId} already exists`);
+    log.info(`Implicit account ${accountId} already exists`);
   } catch (e: any) {
     // Check for account not existing - can be in message or type
     const isAccountNotFound =
@@ -91,7 +95,7 @@ export async function ensureImplicitAccountExists(
     if (!isAccountNotFound) throw e;
 
     // Account doesn't exist - fund it to create using the relayer account
-    console.log(`[nearMetaTx] Creating implicit account ${accountId} by funding with NEAR`);
+    log.info(`Creating implicit account ${accountId} by funding with NEAR`);
 
     const { account: relayer } = await getRelayerAccount();
     const result = await relayer.transfer({
@@ -100,8 +104,8 @@ export async function ensureImplicitAccountExists(
       token: NEAR,
     });
 
-    const txHash = (result as any).transaction?.hash || (result as any).transaction_outcome?.id;
-    console.log(`[nearMetaTx] Funded implicit account ${accountId}: ${txHash}`);
+    const txHash = extractTxHash(result as FinalExecutionOutcome);
+    log.info(`Funded implicit account ${accountId}: ${txHash}`);
 
     // Wait a bit for the account to be created
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -116,7 +120,7 @@ export async function executeMetaTransaction(
   receiverId: string,
   actions: Action[],
 ): Promise<string> {
-  const provider = new JsonRpcProvider({ url: nodeUrl });
+  const provider = getNearProvider();
 
   // Derive the user's NEAR implicit account
   // userDestination goes in 3rd parameter for custody isolation
@@ -127,12 +131,12 @@ export async function executeMetaTransaction(
   );
   const publicKey = PublicKey.fromString(publicKeyStr);
 
-  console.log(`[nearMetaTx] Derived account for userDestination=${userDestination}: ${senderId}`);
+  log.info(`Derived account for userDestination=${userDestination}: ${senderId}`);
 
   // Ensure the implicit account exists (fund it if needed)
   await ensureImplicitAccountExists(provider, senderId, publicKeyStr);
 
-  console.log(`[nearMetaTx] Building delegate action for ${senderId} -> ${receiverId}`);
+  log.info(`Building delegate action for ${senderId} -> ${receiverId}`);
 
   // Get nonce and block height
   let nonce = BigInt(0);
@@ -143,7 +147,7 @@ export async function executeMetaTransaction(
       account_id: senderId,
       public_key: publicKeyStr,
     });
-    nonce = BigInt((accessKey as any).nonce);
+    nonce = BigInt((accessKey as unknown as { nonce: number }).nonce);
   } catch (e: any) {
     if (!e.message?.includes("does not exist")) throw e;
   }
@@ -187,6 +191,10 @@ export async function executeMetaTransaction(
     sigData.set(Buffer.from(signRes.signature.s, "hex"), 32);
   }
 
+  if (sigData.length !== 64) {
+    throw new Error(`Expected 64-byte ed25519 signature, got ${sigData.length} bytes`);
+  }
+
   const signedDelegate = new SignedDelegate({
     delegateAction,
     signature: new Signature({ keyType: KeyType.ED25519, data: sigData }),
@@ -194,15 +202,15 @@ export async function executeMetaTransaction(
 
   // Submit via relayer
   const { account: relayer } = await getRelayerAccount();
-  console.log(`[nearMetaTx] Relaying via ${relayer.accountId}`);
+  log.info(`Relaying via ${relayer.accountId}`);
 
   const result = await relayer.signAndSendTransaction({
     receiverId: senderId,
     actions: [actionCreators.signedDelegate(signedDelegate)],
   });
 
-  const txHash = (result as any).transaction?.hash || (result as any).transaction_outcome?.id;
-  console.log(`[nearMetaTx] Transaction: ${txHash}`);
+  const txHash = extractTxHash(result as FinalExecutionOutcome);
+  log.info(`Transaction: ${txHash}`);
   return txHash;
 }
 

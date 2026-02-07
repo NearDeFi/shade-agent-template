@@ -1,5 +1,8 @@
 import { fetchWithRetry } from "./http";
 import { config } from "../config";
+import { createLogger } from "./logger";
+
+const log = createLogger("ethPrice");
 
 const PRICE_FETCH_TIMEOUT_MS = 7000;
 
@@ -19,10 +22,10 @@ async function getETHPriceFromOKX(): Promise<number | null> {
     const data = await response.json();
     // OKX returns an array in the 'data' field; extract the 'last' price
     const price = parseFloat(data.data[0].last);
-    console.log(`OKX ETH Price: $${price}`);
+    log.info("OKX ETH Price", { price });
     return price;
   } catch (error) {
-    console.error("Error fetching price from OKX:", error);
+    log.error("Error fetching price from OKX", { err: String(error) });
     return null;
   }
 }
@@ -42,10 +45,10 @@ async function getETHPriceFromCoinbase(): Promise<number | null> {
     }
     const data = await response.json();
     const price = parseFloat(data.data.amount);
-    console.log(`Coinbase ETH Price: $${price}`);
+    log.info("Coinbase ETH Price", { price });
     return price;
   } catch (error) {
-    console.error("Error fetching price from Coinbase:", error);
+    log.error("Error fetching price from Coinbase", { err: String(error) });
     return null;
   }
 }
@@ -69,12 +72,14 @@ export async function getEthereumPriceUSD(): Promise<number | null> {
     // Calculate average, multiply by 100 and round to integer
     const averagePrice = Math.round(((okxPrice + coinbasePrice) / 2) * 100);
 
-    console.log(
-      `Average ETH Price: $${(averagePrice / 100).toFixed(2)} (OKX: $${okxPrice}, Coinbase: $${coinbasePrice})`,
-    );
+    log.info("Average ETH Price", {
+      average: (averagePrice / 100).toFixed(2),
+      okx: okxPrice,
+      coinbase: coinbasePrice,
+    });
     return averagePrice;
   } catch (error) {
-    console.error("Error fetching Ethereum price:", error);
+    log.error("Error fetching Ethereum price", { err: String(error) });
     return null;
   }
 }

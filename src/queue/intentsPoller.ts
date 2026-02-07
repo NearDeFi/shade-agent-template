@@ -1,8 +1,19 @@
-import { OneClickService, OpenAPI } from "@defuse-protocol/one-click-sdk-typescript";
-import { config } from "../config";
+import { OneClickService } from "@defuse-protocol/one-click-sdk-typescript";
 import { getIntentsByState, setStatus, IntentStatus } from "../state/status";
 import { RedisQueueClient } from "./redis";
 import { ValidatedIntent } from "./types";
+import { createLogger } from "../utils/logger";
+import { ensureIntentsApiBase } from "../infra/intentsApi";
+import {
+  type BackgroundTaskHandle,
+  createLinkedAbortController,
+  delayWithSignal,
+} from "./runtime";
+
+const log = createLogger("intentsPoller");
+
+// Shared queue client to avoid creating a new Redis connection per re-enqueue
+const sharedQueueClient = new RedisQueueClient();
 
 // How often to poll for swap status
 const STATUS_POLL_INTERVAL_MS = 5_000;
@@ -16,23 +27,43 @@ interface IntentsSwapStatus {
  * Polls the Defuse/Intents API for pending cross-chain swaps.
  * When a swap completes successfully, triggers the next step (e.g., Jupiter swap).
  */
-export async function startIntentsPoller() {
-  if (config.intentsQuoteUrl) {
-    OpenAPI.BASE = config.intentsQuoteUrl;
-  }
+interface StartIntentsPollerOptions {
+  signal?: AbortSignal;
+  pollIntervalMs?: number;
+}
 
-  console.log("[intentsPoller] Starting intents status poller");
+export function startIntentsPoller(
+  options: StartIntentsPollerOptions = {},
+): BackgroundTaskHandle {
+  ensureIntentsApiBase();
+  const controller = createLinkedAbortController(options.signal);
+  const signal = controller.signal;
+  const pollIntervalMs = options.pollIntervalMs ?? STATUS_POLL_INTERVAL_MS;
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      await pollPendingIntents();
-    } catch (err) {
-      console.error("[intentsPoller] Error polling intents:", err);
+  log.info("Starting intents status poller");
+
+  const loopPromise = (async () => {
+    while (!signal.aborted) {
+      try {
+        await pollPendingIntents();
+      } catch (err) {
+        log.error("Error polling intents", { err: String(err) });
+      }
+
+      await delayWithSignal(pollIntervalMs, signal);
     }
+  })().finally(async () => {
+    await sharedQueueClient.close();
+    log.info("Intents status poller stopped");
+  });
 
-    await delay(STATUS_POLL_INTERVAL_MS);
-  }
+  return {
+    stopped: loopPromise,
+    stop: async () => {
+      controller.abort();
+      await loopPromise;
+    },
+  };
 }
 
 async function pollPendingIntents() {
@@ -43,13 +74,13 @@ async function pollPendingIntents() {
     return;
   }
 
-  console.log(`[intentsPoller] Checking ${pendingIntents.length} pending intents`);
+  log.info(`Checking ${pendingIntents.length} pending intents`);
 
   for (const intentStatus of pendingIntents) {
     try {
       await checkAndProcessIntent(intentStatus);
     } catch (err) {
-      console.error(`[intentsPoller] Error checking intent ${intentStatus.intentId}:`, err);
+      log.error(`Error checking intent ${intentStatus.intentId}`, { err: String(err) });
     }
   }
 }
@@ -58,7 +89,7 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
   const { intentId, depositAddress, depositMemo } = intentStatus;
 
   if (!depositAddress) {
-    console.warn(`[intentsPoller] Intent ${intentId} missing depositAddress, skipping`);
+    log.warn(`Intent ${intentId} missing depositAddress, skipping`);
     return;
   }
 
@@ -70,11 +101,11 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
       depositMemo,
     ) as IntentsSwapStatus;
   } catch (err) {
-    console.error(`[intentsPoller] Failed to get status for ${intentId}:`, err);
+    log.error(`Failed to get status for ${intentId}`, { err: String(err) });
     return;
   }
 
-  console.log(`[intentsPoller] Intent ${intentId} status: ${swapStatus.status}`);
+  log.info(`Intent ${intentId} status: ${swapStatus.status}`);
 
   switch (swapStatus.status?.toLowerCase()) {
     case "success":
@@ -98,7 +129,7 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
       break;
 
     default:
-      console.log(`[intentsPoller] Unknown status for ${intentId}: ${swapStatus.status}`);
+      log.info(`Unknown status for ${intentId}: ${swapStatus.status}`);
   }
 }
 
@@ -106,7 +137,7 @@ async function handleIntentsSuccess(intentStatus: { intentId: string } & IntentS
   const { intentId, intentData } = intentStatus;
 
   if (!intentData) {
-    console.error(`[intentsPoller] Intent ${intentId} missing intentData`);
+    log.error(`Intent ${intentId} missing intentData`);
     await setStatus(intentId, {
       state: "failed",
       error: "Missing intent data after intents success",
@@ -114,7 +145,7 @@ async function handleIntentsSuccess(intentStatus: { intentId: string } & IntentS
     return;
   }
 
-  console.log(`[intentsPoller] Intents swap completed for ${intentId}, queueing next step`);
+  log.info(`Intents swap completed for ${intentId}, queueing next step`);
 
   // Update status to indicate we're moving to the next step
   await setStatus(intentId, {
@@ -132,12 +163,7 @@ async function handleIntentsSuccess(intentStatus: { intentId: string } & IntentS
     },
   };
 
-  const queue = new RedisQueueClient();
-  await queue.enqueueIntent(updatedIntent);
+  await sharedQueueClient.enqueueIntent(updatedIntent);
 
-  console.log(`[intentsPoller] Re-enqueued intent ${intentId} for Jupiter swap`);
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  log.info(`Re-enqueued intent ${intentId} for Jupiter swap`);
 }

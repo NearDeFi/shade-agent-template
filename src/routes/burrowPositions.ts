@@ -7,8 +7,13 @@ import {
   deriveNearImplicitAccount,
   NEAR_DEFAULT_PATH,
 } from "../utils/chainSignature";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError } from "./errorHandling";
 
+const log = createLogger("burrowPositions");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
 // GET /api/burrow-positions/markets
 // Returns all available Burrow markets with their current rates and liquidity
@@ -21,11 +26,7 @@ app.get("/markets", async (c) => {
       count: markets.length,
     });
   } catch (err) {
-    console.error("Failed to fetch Burrow markets", err);
-    return c.json(
-      { error: (err as Error).message || "Failed to fetch markets" },
-      500,
-    );
+    throw new AppError("operation_failed", (err as Error).message, { cause: err });
   }
 });
 
@@ -35,11 +36,11 @@ app.get("/derive", async (c) => {
   const userDestination = c.req.query("userDestination");
 
   if (!userDestination) {
-    return c.json({ error: "userDestination query parameter is required" }, 400);
+    throw new AppError("invalid_request", "userDestination query parameter is required");
   }
 
   try {
-    console.log(`[burrowPositions] Deriving NEAR account for userDestination: ${userDestination}`);
+    log.info(`Deriving NEAR account for userDestination: ${userDestination}`);
 
     const { accountId, publicKey } = await deriveNearImplicitAccount(
       NEAR_DEFAULT_PATH,
@@ -47,7 +48,7 @@ app.get("/derive", async (c) => {
       userDestination,
     );
 
-    console.log(`[burrowPositions] Derived NEAR account: ${accountId}`);
+    log.info(`Derived NEAR account: ${accountId}`);
 
     return c.json({
       userDestination,
@@ -55,51 +56,30 @@ app.get("/derive", async (c) => {
       derivedPublicKey: publicKey,
     });
   } catch (err) {
-    console.error("[burrowPositions] Failed to derive NEAR account", err);
-    return c.json(
-      { error: (err as Error).message || "Failed to derive account" },
-      500,
-    );
+    throw new AppError("operation_failed", (err as Error).message, { cause: err });
   }
 });
 
 // GET /api/burrow-positions/user?userDestination=...
 // Gets positions for the derived account from a user destination (NEAR account ID)
 app.get("/user", async (c) => {
-  console.log(`[burrowPositions] /user route hit`);
-  console.log(`[burrowPositions] Full URL: ${c.req.url}`);
-  console.log(`[burrowPositions] Query params:`, c.req.query());
-
   const userDestination = c.req.query("userDestination");
 
   if (!userDestination) {
-    return c.json({ error: "userDestination query parameter is required" }, 400);
+    throw new AppError("invalid_request", "userDestination query parameter is required");
   }
 
   try {
     // Derive the NEAR implicit account using userDestination for custody isolation
     // This matches the derivation used in burrowDeposit/burrowWithdraw flows
-    console.log(`[burrowPositions] === DERIVATION DEBUG ===`);
-    console.log(`[burrowPositions] userDestination input: ${userDestination}`);
-    console.log(`[burrowPositions] NEAR_DEFAULT_PATH: ${NEAR_DEFAULT_PATH}`);
-    console.log(`[burrowPositions] Expected derivation path: ${NEAR_DEFAULT_PATH},${userDestination}`);
-
     const { accountId, publicKey } = await deriveNearImplicitAccount(
       NEAR_DEFAULT_PATH,
       undefined, // no nearPublicKey
       userDestination,
     );
 
-    console.log(`[burrowPositions] === DERIVED RESULT ===`);
-    console.log(`[burrowPositions] Derived accountId: ${accountId}`);
-    console.log(`[burrowPositions] Derived publicKey: ${publicKey}`);
-    console.log(`[burrowPositions] Now fetching positions for: ${accountId}`);
-
     // Get positions for the derived account
     const positions = await getUserPositions(accountId);
-
-    console.log(`[burrowPositions] === POSITIONS RESULT ===`);
-    console.log(`[burrowPositions] Positions response:`, JSON.stringify(positions, null, 2));
 
     return c.json({
       userDestination,
@@ -108,11 +88,7 @@ app.get("/user", async (c) => {
       ...positions,
     });
   } catch (err) {
-    console.error("[burrowPositions] Failed to fetch Burrow positions", err);
-    return c.json(
-      { error: (err as Error).message || "Failed to fetch positions" },
-      500,
-    );
+    throw new AppError("operation_failed", (err as Error).message, { cause: err });
   }
 });
 
@@ -143,19 +119,14 @@ app.get("/:accountId", async (c) => {
   const accountId = c.req.param("accountId");
 
   if (!accountId) {
-    return c.json({ error: "accountId is required" }, 400);
+    throw new AppError("invalid_request", "accountId is required");
   }
 
   try {
     const positions = await getUserPositions(accountId);
-
     return c.json(positions);
   } catch (err) {
-    console.error("Failed to fetch Burrow positions", err);
-    return c.json(
-      { error: (err as Error).message || "Failed to fetch positions" },
-      500,
-    );
+    throw new AppError("operation_failed", (err as Error).message, { cause: err });
   }
 });
 

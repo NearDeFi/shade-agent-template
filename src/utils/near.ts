@@ -1,4 +1,4 @@
-import { chainAdapters, contracts, utils } from "chainsig.js";
+import { chainAdapters, utils } from "chainsig.js";
 import { JsonRpcProvider } from "@near-js/providers";
 import { Account } from "@near-js/accounts";
 import { KeyPairSigner } from "@near-js/signers";
@@ -17,8 +17,14 @@ import { baseDecode } from "@near-js/utils";
 import { parseSeedPhrase } from "near-seed-phrase";
 import bs58 from "bs58";
 import crypto from "crypto";
+import type { FinalExecutionOutcome } from "@near-js/types";
 import { config, isTestnet } from "../config";
 import { requestSignature } from "@neardefi/shade-agent-js";
+import { base58Decode } from "./common";
+import { chainSignatureContract } from "../infra/chainSignature";
+import { createLogger } from "./logger";
+
+const log = createLogger("near");
 
 const { uint8ArrayToHex } = utils.cryptography;
 
@@ -26,13 +32,6 @@ export const NEAR_DEFAULT_PATH = "near-1";
 
 const networkId = isTestnet ? "testnet" : "mainnet";
 const nodeUrl = config.nearRpcUrls[0] || (isTestnet ? "https://rpc.testnet.near.org" : "https://rpc.mainnet.near.org");
-
-const chainSignatureContract = new contracts.ChainSignatureContract({
-  networkId: config.chainSignatureNetwork as "mainnet" | "testnet",
-  contractId: config.chainSignatureContractId,
-  masterPublicKey: config.chainSignatureMpcKey,
-  fallbackRpcUrls: config.nearRpcUrls,
-} as any);
 
 const nearProvider = new JsonRpcProvider({ url: nodeUrl });
 
@@ -44,6 +43,15 @@ const NearAdapter = new chainAdapters.near.NEAR({
 
 export function getNearProvider() {
   return nearProvider;
+}
+
+/**
+ * Extract tx hash from a FinalExecutionOutcome.
+ * The SDK types `transaction` as `any`, so we centralise the access here.
+ */
+export function extractTxHash(result: FinalExecutionOutcome): string {
+  const r = result as any;
+  return r.transaction?.hash || r.transaction_outcome?.id;
 }
 
 // Minimum NEAR to fund implicit account (0.01 NEAR)
@@ -70,7 +78,7 @@ async function getRelayerAccount(): Promise<{ account: Account; publicKey: strin
   const pubKeyBytes = bs58.decode(pubKeyBase58);
   const accountId = Buffer.from(pubKeyBytes).toString("hex");
 
-  console.log("[near] Relayer account from seed phrase:", accountId);
+  log.info(`Relayer account from seed phrase: ${accountId}`);
 
   const signer = KeyPairSigner.fromSecretKey(secretKey as `ed25519:${string}`);
   const account = new Account(accountId, nearProvider, signer);
@@ -85,11 +93,11 @@ async function getRelayerAccount(): Promise<{ account: Account; publicKey: strin
 export async function ensureNearAccountFunded(accountId: string): Promise<void> {
   const exists = await ensureNearAccountExists(accountId);
   if (exists) {
-    console.log(`[near] Account ${accountId} already exists`);
+    log.info(`Account ${accountId} already exists`);
     return;
   }
 
-  console.log(`[near] Creating implicit account ${accountId} by funding with NEAR`);
+  log.info(`Creating implicit account ${accountId} by funding with NEAR`);
 
   const { account: relayer } = await getRelayerAccount();
   const result = await relayer.transfer({
@@ -98,8 +106,8 @@ export async function ensureNearAccountFunded(accountId: string): Promise<void> 
     token: NEAR,
   });
 
-  const txHash = (result as any).transaction?.hash || (result as any).transaction_outcome?.id;
-  console.log(`[near] Funded implicit account ${accountId}: ${txHash}`);
+  const txHash = extractTxHash(result as FinalExecutionOutcome);
+  log.info(`Funded implicit account ${accountId}: ${txHash}`);
 
   // Wait for account to be created
   await new Promise(resolve => setTimeout(resolve, 2000));
@@ -152,37 +160,6 @@ export async function deriveNearAgentAccount(
     publicKey: normalizedPublicKey,
     derivationPath,
   };
-}
-
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-function base58Decode(str: string): Uint8Array {
-  const bytes: number[] = [];
-  let value = BigInt(0);
-
-  for (const char of str) {
-    const index = BASE58_ALPHABET.indexOf(char);
-    if (index === -1) {
-      throw new Error(`Invalid base58 character: ${char}`);
-    }
-    value = value * BigInt(58) + BigInt(index);
-  }
-
-  while (value > 0n) {
-    bytes.unshift(Number(value & 0xffn));
-    value = value >> 8n;
-  }
-
-  for (const char of str) {
-    if (char !== "1") break;
-    bytes.unshift(0);
-  }
-
-  while (bytes.length < 32) {
-    bytes.unshift(0);
-  }
-
-  return new Uint8Array(bytes);
 }
 
 export interface NearFunctionCallRequest {
@@ -242,7 +219,7 @@ export async function prepareNearFunctionCallTx(
       account_id: from.accountId,
       public_key: from.publicKey,
     });
-    nonce = BigInt((accessKey as any).nonce);
+    nonce = BigInt((accessKey as unknown as { nonce: number }).nonce);
   } catch (e: any) {
     if (!e.message?.includes("does not exist")) throw e;
   }
@@ -257,11 +234,15 @@ export async function prepareNearFunctionCallTx(
   ];
 
   // Build the transaction
+  const nextNonce = nonce + 1n;
+  if (nextNonce > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`Nonce ${nextNonce} exceeds Number.MAX_SAFE_INTEGER`);
+  }
   const transaction = nearCreateTransaction(
     from.accountId,
     publicKey,
     receiverId,
-    Number(nonce + 1n),
+    Number(nextNonce),
     actions,
     blockHash,
   );
@@ -305,6 +286,10 @@ export async function signNearTransaction(
     sigData.set(Buffer.from(signRes.signature.s, "hex"), 32);
   }
 
+  if (sigData.length !== 64) {
+    throw new Error(`Expected 64-byte ed25519 signature, got ${sigData.length} bytes`);
+  }
+
   return sigData;
 }
 
@@ -329,8 +314,8 @@ export function finalizeNearTransaction(
  */
 export async function broadcastNearTx(signedTx: NearSignedTransaction): Promise<string> {
   const result = await nearProvider.sendTransaction(signedTx);
-  const txHash = (result as any).transaction?.hash || (result as any).transaction_outcome?.id;
-  console.log(`[near] Transaction broadcast: ${txHash}`);
+  const txHash = extractTxHash(result as FinalExecutionOutcome);
+  log.info(`Transaction broadcast: ${txHash}`);
   return txHash;
 }
 
@@ -383,7 +368,8 @@ export async function getNearTransactionStatus(
   txHash: string,
   senderAccountId: string,
 ): Promise<NearTransactionResult> {
-  const result: any = await nearProvider.txStatus(txHash, senderAccountId, "FINAL");
+  // txStatus returns FinalExecutionOutcome but transaction/status fields are typed as any in the SDK
+  const result = await nearProvider.txStatus(txHash, senderAccountId, "FINAL") as any;
 
   const success = !result.status?.Failure;
   const receiverId = result.transaction?.receiver_id || "";

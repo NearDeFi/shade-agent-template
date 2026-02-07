@@ -80,7 +80,7 @@ describe("transaction route", () => {
   });
 
   it("returns tx hash and price when successful", async () => {
-    const res = await app.request("/api/transaction");
+    const res = await app.request("/api/transaction", { method: "POST" });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.txHash).toBe("0xhash");
@@ -91,7 +91,7 @@ describe("transaction route", () => {
 
   it("fails when price fetch returns null", async () => {
     mocks.getEthereumPriceUSDMock.mockResolvedValue(null);
-    const res = await app.request("/api/transaction");
+    const res = await app.request("/api/transaction", { method: "POST" });
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toMatch(/fetch ETH price/i);

@@ -15,7 +15,6 @@ import {
   executeNearFunctionCall,
   NEAR_DEFAULT_PATH,
 } from "../utils/near";
-import { flowRegistry } from "./registry";
 import { logNearAddressInfo } from "./context";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
@@ -172,10 +171,6 @@ const nearSwapFlow: FlowDefinition<NearSwapMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(nearSwapFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

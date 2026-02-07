@@ -447,13 +447,29 @@ Most endpoints require either:
       post: {
         tags: ["Orders"],
         summary: "Mark order as funded",
-        description: "Activate a pending order after deposit is detected",
+        description:
+          "Activate a pending order after deposit is detected. This endpoint is for internal deposit-monitor use and requires an order funding key.",
         parameters: [
           { name: "orderId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "x-order-funding-key",
+            in: "header",
+            required: false,
+            schema: { type: "string" },
+            description:
+              "Funding API key. Alternative: Authorization Bearer token with the same value.",
+          },
+          {
+            name: "Authorization",
+            in: "header",
+            required: false,
+            schema: { type: "string", example: "Bearer <ORDER_FUNDING_API_KEY>" },
+            description: "Bearer token alternative to x-order-funding-key.",
+          },
         ],
         responses: {
           "200": {
-            description: "Order activated",
+            description: "Order activated (or already in a non-pending state)",
             content: {
               "application/json": {
                 schema: {
@@ -466,6 +482,8 @@ Most endpoints require either:
               },
             },
           },
+          "401": { description: "Missing or invalid funding key" },
+          "503": { description: "Manual funding endpoint disabled (ORDER_FUNDING_API_KEY unset)" },
           "404": { description: "Order not found" },
         },
       },

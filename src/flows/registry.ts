@@ -1,5 +1,6 @@
 import type { IntentChain, ValidatedIntent } from "../queue/types";
 import type { FlowDefinition } from "./types";
+import type { FlowCatalog } from "./catalog";
 
 // Use any for the metadata type to allow registration of flows with different metadata types
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -9,7 +10,7 @@ type AnyFlowDefinition = FlowDefinition<any>;
  * Registry for flow definitions
  * Flows self-register at module load time
  */
-class FlowRegistry {
+export class FlowRegistry implements FlowCatalog {
   private flows: Map<string, AnyFlowDefinition> = new Map();
   private defaultFlow: AnyFlowDefinition | null = null;
 
@@ -59,11 +60,11 @@ class FlowRegistry {
    * @returns The matching flow or default flow
    */
   findMatch(intent: ValidatedIntent): AnyFlowDefinition | undefined {
-    // First: try direct action lookup
+    // First: try direct action lookup, but still validate via isMatch
     const action = intent.metadata?.action;
     if (typeof action === "string") {
       const flow = this.flows.get(action);
-      if (flow) return flow;
+      if (flow && flow.isMatch(intent)) return flow;
     }
 
     // Second: try type guard matching
@@ -133,5 +134,6 @@ class FlowRegistry {
   }
 }
 
-/** Singleton flow registry instance */
-export const flowRegistry = new FlowRegistry();
+export function createFlowRegistry(): FlowRegistry {
+  return new FlowRegistry();
+}

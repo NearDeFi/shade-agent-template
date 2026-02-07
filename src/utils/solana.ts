@@ -1,16 +1,15 @@
-import { chainAdapters, contracts } from "chainsig.js";
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { chainAdapters } from "chainsig.js";
+import {
+  AddressLookupTableAccount,
+  Connection,
+  PublicKey,
+  TransactionInstruction,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import { config } from "../config";
+import { chainSignatureContract } from "../infra/chainSignature";
 
 export const SOLANA_DEFAULT_PATH = "solana-1";
-
-const chainSignatureContract = new contracts.ChainSignatureContract({
-  networkId: config.chainSignatureNetwork as "mainnet" | "testnet",
-  contractId: config.chainSignatureContractId,
-  // Provided by backend even though typings omit it
-  masterPublicKey: config.chainSignatureMpcKey,
-  fallbackRpcUrls: config.nearRpcUrls,
-} as any);
 
 const solanaConnection = new Connection(config.solRpcUrl, "confirmed");
 
@@ -83,10 +82,14 @@ export function attachMultipleSignaturesToVersionedTx(
 
 export async function broadcastSolanaTx(tx: VersionedTransaction, skipConfirmation = false) {
   const connection = getSolanaConnection();
+
+  // Fetch the blockhash commitment BEFORE sending so we confirm against
+  // the same blockhash the transaction was built with.
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+
   const sig = await connection.sendRawTransaction(tx.serialize());
 
   if (!skipConfirmation) {
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
     const confirmation = await connection.confirmTransaction(
       { signature: sig, blockhash, lastValidBlockHeight },
       "confirmed",
@@ -97,6 +100,45 @@ export async function broadcastSolanaTx(tx: VersionedTransaction, skipConfirmati
   }
 
   return sig;
+}
+
+// ─── Instruction Helpers ──────────────────────────────────────────────────────
+
+export function deserializeInstruction(instruction: {
+  programId: string;
+  accounts: Array<{ pubkey: string; isSigner: boolean; isWritable: boolean }>;
+  data: string;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: new PublicKey(instruction.programId),
+    keys: instruction.accounts.map((acc) => ({
+      pubkey: new PublicKey(acc.pubkey),
+      isSigner: acc.isSigner,
+      isWritable: acc.isWritable,
+    })),
+    data: Buffer.from(instruction.data, "base64"),
+  });
+}
+
+export async function getAddressLookupTableAccounts(
+  connection: Connection,
+  addresses: string[],
+): Promise<AddressLookupTableAccount[]> {
+  if (addresses.length === 0) return [];
+
+  const accounts = await connection.getMultipleAccountsInfo(
+    addresses.map((addr) => new PublicKey(addr)),
+  );
+
+  return accounts
+    .map((account, index) => {
+      if (!account) return null;
+      return new AddressLookupTableAccount({
+        key: new PublicKey(addresses[index]),
+        state: AddressLookupTableAccount.deserialize(account.data),
+      });
+    })
+    .filter((account): account is AddressLookupTableAccount => account !== null);
 }
 
 // ─── High-Level Transaction Helpers ─────────────────────────────────────────────

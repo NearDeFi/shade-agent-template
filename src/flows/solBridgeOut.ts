@@ -20,7 +20,6 @@ import {
 } from "../utils/solana";
 import { getSolDefuseAssetId } from "../utils/tokenMappings";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import { flowRegistry } from "./registry";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
@@ -244,10 +243,6 @@ const solBridgeOutFlow: FlowDefinition<SolBridgeOutMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(solBridgeOutFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

@@ -4,8 +4,13 @@ import {
   getEvmPublicClient,
   deriveEvmAgentAddress,
 } from "../utils/evmChains";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError } from "./errorHandling";
 
+const log = createLogger("aavePositions");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
 // ─── Aave V3 Pool Addresses ────────────────────────────────────────────────────
 
@@ -107,7 +112,10 @@ app.get("/positions/:address", async (c) => {
     try {
       evmAddress = await deriveEvmAgentAddress(userDestination);
     } catch (err) {
-      return c.json({ error: `Failed to derive EVM address: ${(err as Error).message}` }, 500);
+      throw new AppError(
+        "operation_failed",
+        `Failed to derive EVM address: ${(err as Error).message}`,
+      );
     }
   } else {
     evmAddress = addressParam;
@@ -115,9 +123,10 @@ app.get("/positions/:address", async (c) => {
 
   // Validate EVM address format
   if (!/^0x[0-9a-fA-F]{40}$/.test(evmAddress)) {
-    return c.json({
-      error: "Invalid EVM address. Provide a valid 0x address or use ?userDestination= to derive one.",
-    }, 400);
+    throw new AppError(
+      "invalid_request",
+      "Invalid EVM address. Provide a valid 0x address or use ?userDestination= to derive one.",
+    );
   }
 
   const results: Record<string, unknown> = {};
@@ -144,7 +153,7 @@ app.get("/positions/:address", async (c) => {
         healthFactor: (data[5] as bigint).toString(),
       };
     } catch (err) {
-      console.error(`[aavePositions] Failed to fetch data for ${chain}`, err);
+      log.error(`Failed to fetch data for ${chain}`, { err: String(err) });
       results[chain] = { error: (err as Error).message };
     }
   }
@@ -166,7 +175,10 @@ app.get("/positions/:address/:chain", async (c) => {
   const userDestination = c.req.query("userDestination");
 
   if (!AAVE_SUPPORTED_CHAINS.includes(chain)) {
-    return c.json({ error: `Unsupported chain: ${chain}. Supported: ${AAVE_SUPPORTED_CHAINS.join(", ")}` }, 400);
+    throw new AppError(
+      "invalid_request",
+      `Unsupported chain: ${chain}. Supported: ${AAVE_SUPPORTED_CHAINS.join(", ")}`,
+    );
   }
 
   let evmAddress: string;
@@ -174,19 +186,22 @@ app.get("/positions/:address/:chain", async (c) => {
     try {
       evmAddress = await deriveEvmAgentAddress(userDestination);
     } catch (err) {
-      return c.json({ error: `Failed to derive EVM address: ${(err as Error).message}` }, 500);
+      throw new AppError(
+        "operation_failed",
+        `Failed to derive EVM address: ${(err as Error).message}`,
+      );
     }
   } else {
     evmAddress = addressParam;
   }
 
   if (!/^0x[0-9a-fA-F]{40}$/.test(evmAddress)) {
-    return c.json({ error: "Invalid EVM address" }, 400);
+    throw new AppError("invalid_request", "Invalid EVM address");
   }
 
   const poolAddress = AAVE_POOL_ADDRESSES[chain];
   if (!poolAddress) {
-    return c.json({ error: `No Aave pool for chain ${chain}` }, 404);
+    throw new AppError("not_found", `No Aave pool for chain ${chain}`);
   }
 
   try {
@@ -236,8 +251,11 @@ app.get("/positions/:address/:chain", async (c) => {
       tokens: tokenBalances.filter((t) => t.balance !== "0"),
     });
   } catch (err) {
-    console.error(`[aavePositions] Failed to fetch positions for ${chain}`, err);
-    return c.json({ error: (err as Error).message }, 500);
+    throw new AppError(
+      "operation_failed",
+      `Failed to fetch positions for ${chain}`,
+      { cause: err },
+    );
   }
 });
 

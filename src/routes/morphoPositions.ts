@@ -4,8 +4,13 @@ import {
   getEvmPublicClient,
   deriveEvmAgentAddress,
 } from "../utils/evmChains";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError } from "./errorHandling";
 
+const log = createLogger("morphoPositions");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
 // ─── Morpho Blue Singleton ──────────────────────────────────────────────────────
 
@@ -114,16 +119,20 @@ app.get("/positions/:address", async (c) => {
     try {
       evmAddress = await deriveEvmAgentAddress(userDestination);
     } catch (err) {
-      return c.json({ error: `Failed to derive EVM address: ${(err as Error).message}` }, 500);
+      throw new AppError(
+        "operation_failed",
+        `Failed to derive EVM address: ${(err as Error).message}`,
+      );
     }
   } else {
     evmAddress = addressParam;
   }
 
   if (!/^0x[0-9a-fA-F]{40}$/.test(evmAddress)) {
-    return c.json({
-      error: "Invalid EVM address. Provide a valid 0x address or use ?userDestination= to derive one.",
-    }, 400);
+    throw new AppError(
+      "invalid_request",
+      "Invalid EVM address. Provide a valid 0x address or use ?userDestination= to derive one.",
+    );
   }
 
   const results: Record<string, unknown[]> = {};
@@ -158,7 +167,7 @@ app.get("/positions/:address", async (c) => {
             collateral,
           };
         } catch (err) {
-          console.error(`[morphoPositions] Failed to query market ${market.name} on ${chain}`, err);
+          log.error(`Failed to query market ${market.name} on ${chain}`, { err: String(err) });
           return null;
         }
       }),

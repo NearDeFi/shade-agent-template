@@ -167,10 +167,12 @@ class TransactionEncoder {
     this.buffer.push((value >> 24) & 0xff);
   }
 
-  writeU64(value: number) {
-    // Write as two u32s (little endian)
-    this.writeU32(value);
-    this.writeU32(0); // High bits (assuming nonce fits in 32 bits)
+  writeU64(value: number | bigint) {
+    // Write full 64-bit little-endian value using BigInt to avoid truncation
+    const big = BigInt(value);
+    for (let i = 0; i < 8; i++) {
+      this.buffer.push(Number((big >> BigInt(i * 8)) & 0xffn));
+    }
   }
 
   writeU128(value: string) {

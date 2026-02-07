@@ -5,6 +5,9 @@
 
 import { fetchWithRetry } from "./http";
 import { config } from "../config";
+import { createLogger } from "./logger";
+
+const log = createLogger("priceFeed");
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -86,7 +89,7 @@ async function getJupiterPrice(
 
     const response = await fetchWithRetry(url, undefined, 2, 1000);
     if (!response.ok) {
-      console.warn(`[priceFeed] Jupiter API error: ${response.status}`);
+      log.warn("Jupiter API error", { status: response.status });
       return null;
     }
 
@@ -94,7 +97,7 @@ async function getJupiterPrice(
     const priceInfo = data.data?.[baseAddress];
 
     if (!priceInfo?.price) {
-      console.warn(`[priceFeed] No Jupiter price for ${baseAsset}/${quoteAsset}`);
+      log.warn("No Jupiter price", { baseAsset, quoteAsset });
       return null;
     }
 
@@ -104,7 +107,7 @@ async function getJupiterPrice(
       source: "jupiter",
     };
   } catch (error) {
-    console.error("[priceFeed] Jupiter price fetch error:", error);
+    log.error("Jupiter price fetch error", { err: String(error) });
     return null;
   }
 }
@@ -145,7 +148,7 @@ async function getCoinGeckoPrice(
     const vsCurrency = COINGECKO_QUOTE_CURRENCIES[quoteAsset.toUpperCase()] || "usd";
 
     if (!coinId) {
-      console.warn(`[priceFeed] No CoinGecko ID for ${baseAsset}`);
+      log.warn("No CoinGecko ID", { baseAsset });
       return null;
     }
 
@@ -153,7 +156,7 @@ async function getCoinGeckoPrice(
 
     const response = await fetchWithRetry(url, undefined, 2, 1000);
     if (!response.ok) {
-      console.warn(`[priceFeed] CoinGecko API error: ${response.status}`);
+      log.warn("CoinGecko API error", { status: response.status });
       return null;
     }
 
@@ -161,7 +164,7 @@ async function getCoinGeckoPrice(
     const price = data[coinId]?.[vsCurrency];
 
     if (price === undefined) {
-      console.warn(`[priceFeed] No CoinGecko price for ${baseAsset}/${quoteAsset}`);
+      log.warn("No CoinGecko price", { baseAsset, quoteAsset });
       return null;
     }
 
@@ -171,7 +174,7 @@ async function getCoinGeckoPrice(
       source: "coingecko",
     };
   } catch (error) {
-    console.error("[priceFeed] CoinGecko price fetch error:", error);
+    log.error("CoinGecko price fetch error", { err: String(error) });
     return null;
   }
 }
@@ -234,7 +237,7 @@ export async function getPrices(
       const price = await getPrice(baseAsset, quoteAsset);
       results.set(getCacheKey(baseAsset, quoteAsset), price);
     } catch (error) {
-      console.error(`[priceFeed] Failed to get price for ${baseAsset}/${quoteAsset}:`, error);
+      log.error("Failed to get price", { baseAsset, quoteAsset, err: String(error) });
     }
   });
 

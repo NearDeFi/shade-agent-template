@@ -2,7 +2,10 @@ import { OrderCreateMetadata, ValidatedIntent } from "../queue/types";
 import { deriveAgentPublicKey, SOLANA_DEFAULT_PATH } from "../utils/solana";
 import { deriveNearAgentAccount } from "../utils/near";
 import { getPrice, parsePrice } from "../utils/priceFeed";
-import { flowRegistry } from "./registry";
+import {
+  requireSupportedOrderCustodyChain,
+  validateOrderCreateInput,
+} from "../utils/orderValidation";
 import { requireUserDestination } from "../utils/authorization";
 import {
   createOrder,
@@ -122,83 +125,6 @@ async function deriveOrderAgentAddress(
   throw new Error(`Unsupported order custody chain: ${chain}`);
 }
 
-/**
- * Validate order metadata
- */
-function validateOrderMetadata(metadata: OrderCreateMetadata): void {
-  if (!metadata.orderId || metadata.orderId.length < 8) {
-    throw new Error("orderId must be at least 8 characters");
-  }
-
-  const validOrderTypes = ["limit", "stop-loss", "take-profit"];
-  if (!validOrderTypes.includes(metadata.orderType)) {
-    throw new Error(`Invalid orderType. Must be one of: ${validOrderTypes.join(", ")}`);
-  }
-
-  const validSides = ["buy", "sell"];
-  if (!validSides.includes(metadata.side)) {
-    throw new Error(`Invalid side. Must be one of: ${validSides.join(", ")}`);
-  }
-
-  const validConditions = ["above", "below"];
-  if (!validConditions.includes(metadata.priceCondition)) {
-    throw new Error(`Invalid priceCondition. Must be one of: ${validConditions.join(", ")}`);
-  }
-
-  // Validate trigger price
-  try {
-    const price = parsePrice(metadata.triggerPrice);
-    if (price <= 0) {
-      throw new Error("triggerPrice must be positive");
-    }
-  } catch {
-    throw new Error(`Invalid triggerPrice: ${metadata.triggerPrice}`);
-  }
-
-  if (!metadata.priceAsset) {
-    throw new Error("priceAsset is required");
-  }
-
-  if (!metadata.quoteAsset) {
-    throw new Error("quoteAsset is required");
-  }
-
-  if (!metadata.amount || BigInt(metadata.amount) <= 0n) {
-    throw new Error("amount must be positive");
-  }
-
-  // Validate expiry if provided
-  if (metadata.expiresAt && metadata.expiresAt < Date.now()) {
-    throw new Error("expiresAt must be in the future");
-  }
-
-  // Validate order type logic
-  if (metadata.orderType === "limit") {
-    // Limit buy: execute when price falls below trigger (buy low)
-    // Limit sell: execute when price rises above trigger (sell high)
-    if (metadata.side === "buy" && metadata.priceCondition !== "below") {
-      throw new Error("Limit buy orders should trigger when price falls below target");
-    }
-    if (metadata.side === "sell" && metadata.priceCondition !== "above") {
-      throw new Error("Limit sell orders should trigger when price rises above target");
-    }
-  }
-
-  if (metadata.orderType === "stop-loss") {
-    // Stop-loss: sell when price falls below trigger (cut losses)
-    if (metadata.side !== "sell" || metadata.priceCondition !== "below") {
-      throw new Error("Stop-loss orders should sell when price falls below target");
-    }
-  }
-
-  if (metadata.orderType === "take-profit") {
-    // Take-profit: sell when price rises above trigger (lock in gains)
-    if (metadata.side !== "sell" || metadata.priceCondition !== "above") {
-      throw new Error("Take-profit orders should sell when price rises above target");
-    }
-  }
-}
-
 // ─── Flow Definition ───────────────────────────────────────────────────────────
 
 const orderCreateFlow: FlowDefinition<OrderCreateMetadata> = {
@@ -239,7 +165,7 @@ const orderCreateFlow: FlowDefinition<OrderCreateMetadata> = {
   },
 
   validateMetadata: (metadata) => {
-    validateOrderMetadata(metadata);
+    validateOrderCreateInput(metadata, { requireUserDestination: false });
   },
 
   validateAuthorization: async (intent, ctx) => {
@@ -273,14 +199,7 @@ const orderCreateFlow: FlowDefinition<OrderCreateMetadata> = {
       logger.warn(`Could not fetch current price: ${error}`);
     }
 
-    // Determine custody chain
-    const custodyChain = meta.sourceChain as "solana" | "near";
-    if (custodyChain !== "solana" && custodyChain !== "near") {
-      throw new Error(
-        `Direct custody on ${meta.sourceChain} not yet supported. ` +
-        `Use Solana or NEAR as sourceChain.`
-      );
-    }
+    const custodyChain = requireSupportedOrderCustodyChain(meta.sourceChain);
 
     // Derive custody address
     const agentAddress = await deriveOrderAgentAddress(meta.orderId, custodyChain);
@@ -389,10 +308,6 @@ const orderCreateFlow: FlowDefinition<OrderCreateMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(orderCreateFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

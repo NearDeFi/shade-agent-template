@@ -3,8 +3,13 @@ import { createSolanaRpc, address } from "@solana/kit";
 import { KaminoMarket, PROGRAM_ID } from "@kamino-finance/klend-sdk";
 import { config } from "../config";
 import { deriveAgentPublicKey, SOLANA_DEFAULT_PATH } from "../utils/solana";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError } from "./errorHandling";
 
+const log = createLogger("kaminoPositions");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
 function createKaminoRpc() {
   return createSolanaRpc(config.solRpcUrl);
@@ -39,30 +44,25 @@ app.get("/:marketAddress", async (c) => {
   const userDestination = c.req.query("userDestination");
 
   if (!marketAddress) {
-    return c.json({ error: "marketAddress is required" }, 400);
+    throw new AppError("invalid_request", "marketAddress is required");
   }
 
   if (!userDestination) {
-    return c.json({ error: "userDestination is required" }, 400);
+    throw new AppError("invalid_request", "userDestination is required");
   }
 
   try {
     // Derive the user's Solana address using the same path as deposits
     // userDestination is the NEAR account ID (e.g., "user.near")
-    console.log(`[kaminoPositions] Fetching positions for userDestination: ${userDestination}`);
-    console.log(`[kaminoPositions] Using derivation path: ${SOLANA_DEFAULT_PATH},${userDestination}`);
-
     const userPublicKey = await deriveAgentPublicKey(
       SOLANA_DEFAULT_PATH,
       userDestination,
     );
     const userAddress = userPublicKey.toBase58();
-    console.log(`[kaminoPositions] Derived Solana address: ${userAddress}`);
 
     const rpc = createKaminoRpc();
 
     // Load the Kamino market
-    console.log(`[kaminoPositions] Loading Kamino market: ${marketAddress}`);
     const market = await KaminoMarket.load(
       rpc,
       address(marketAddress),
@@ -71,29 +71,22 @@ app.get("/:marketAddress", async (c) => {
     );
 
     if (!market) {
-      console.log(`[kaminoPositions] Market not found: ${marketAddress}`);
-      return c.json({ error: `Market not found: ${marketAddress}` }, 404);
+      throw new AppError("not_found", `Market not found: ${marketAddress}`);
     }
-    console.log(`[kaminoPositions] Market loaded successfully`);
 
     // Get all user obligations in this market
-    console.log(`[kaminoPositions] Querying obligations for user: ${userAddress}`);
     const obligations = await market.getAllUserObligations(address(userAddress));
-    console.log(`[kaminoPositions] Found ${obligations.length} obligations`);
 
     const response: KaminoPositionsResponse = {
       userAddress,
       marketAddress,
-      obligations: obligations.map((obligation, idx) => {
-        console.log(`[kaminoPositions] Processing obligation ${idx}: ${obligation.obligationAddress}`);
+      obligations: obligations.map((obligation) => {
         const deposits: PositionInfo[] = [];
         const borrows: PositionInfo[] = [];
 
         // Process deposits
-        console.log(`[kaminoPositions] Obligation ${idx} has ${obligation.deposits.size} deposits`);
         for (const [reserveAddr, position] of obligation.deposits) {
           const reserve = market.getReserveByAddress(reserveAddr);
-          console.log(`[kaminoPositions]   Deposit: ${reserve?.symbol || 'unknown'} amount=${position.amount.toString()}`);
           deposits.push({
             reserveAddress: reserveAddr,
             mintAddress: reserve?.getLiquidityMint() || "unknown",
@@ -131,14 +124,12 @@ app.get("/:marketAddress", async (c) => {
       }),
     };
 
-    console.log(`[kaminoPositions] Returning response with ${response.obligations.length} obligations`);
     return c.json(response);
   } catch (err) {
-    console.error("[kaminoPositions] Failed to fetch Kamino positions", err);
-    return c.json(
-      { error: (err as Error).message || "Failed to fetch positions" },
-      500,
-    );
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError("operation_failed", (err as Error).message, { cause: err });
   }
 });
 
@@ -147,21 +138,21 @@ app.get("/", async (c) => {
   const userDestination = c.req.query("userDestination");
 
   if (!userDestination) {
-    return c.json({ error: "userDestination is required" }, 400);
+    throw new AppError("invalid_request", "userDestination is required");
   }
 
   try {
     // Derive the user's Solana address using the same path as deposits
     // userDestination is the NEAR account ID (e.g., "user.near")
-    console.log(`[kaminoPositions] Root route - deriving address for userDestination: ${userDestination}`);
-    console.log(`[kaminoPositions] Root route - derivation path: ${SOLANA_DEFAULT_PATH},${userDestination}`);
+    log.info(`Root route - deriving address for userDestination: ${userDestination}`);
+    log.info(`Root route - derivation path: ${SOLANA_DEFAULT_PATH},${userDestination}`);
 
     const userPublicKey = await deriveAgentPublicKey(
       SOLANA_DEFAULT_PATH,
       userDestination,
     );
     const userAddress = userPublicKey.toBase58();
-    console.log(`[kaminoPositions] Root route - derived Solana address: ${userAddress}`);
+    log.info(`Root route - derived Solana address: ${userAddress}`);
 
     // Return the derived address and instructions
     return c.json({
@@ -171,11 +162,7 @@ app.get("/", async (c) => {
       example: `/api/kamino-positions/7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF?userDestination=${userDestination}`,
     });
   } catch (err) {
-    console.error("[kaminoPositions] Failed to derive address", err);
-    return c.json(
-      { error: (err as Error).message || "Failed to derive address" },
-      500,
-    );
+    throw new AppError("operation_failed", (err as Error).message, { cause: err });
   }
 });
 

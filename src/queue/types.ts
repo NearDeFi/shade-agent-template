@@ -213,23 +213,31 @@ export interface NearBridgeOutMetadata extends Record<string, unknown> {
   slippageTolerance?: number;
 }
 
+/** Cross-cutting metadata flags set by the intents poller and confirm handler */
+export interface IntentMetadataFlags {
+  /** Set to true by intentsPoller when the bridge leg completes */
+  intentsCompleted?: boolean;
+  /** Set to true by confirm handler when the user's sell TX is verified on-chain */
+  userTxConfirmed?: boolean;
+}
+
 export type IntentMetadata =
-  | KaminoDepositMetadata
-  | KaminoWithdrawMetadata
-  | BurrowDepositMetadata
-  | BurrowWithdrawMetadata
-  | NearSwapMetadata
-  | EvmSwapMetadata
-  | AaveDepositMetadata
-  | AaveWithdrawMetadata
-  | MorphoDepositMetadata
-  | MorphoWithdrawMetadata
-  | SolBridgeOutMetadata
-  | NearBridgeOutMetadata
-  | OrderCreateMetadata
-  | OrderExecuteMetadata
-  | OrderCancelMetadata
-  | Record<string, unknown>;
+  | (KaminoDepositMetadata & IntentMetadataFlags)
+  | (KaminoWithdrawMetadata & IntentMetadataFlags)
+  | (BurrowDepositMetadata & IntentMetadataFlags)
+  | (BurrowWithdrawMetadata & IntentMetadataFlags)
+  | (NearSwapMetadata & IntentMetadataFlags)
+  | (EvmSwapMetadata & IntentMetadataFlags)
+  | (AaveDepositMetadata & IntentMetadataFlags)
+  | (AaveWithdrawMetadata & IntentMetadataFlags)
+  | (MorphoDepositMetadata & IntentMetadataFlags)
+  | (MorphoWithdrawMetadata & IntentMetadataFlags)
+  | (SolBridgeOutMetadata & IntentMetadataFlags)
+  | (NearBridgeOutMetadata & IntentMetadataFlags)
+  | (OrderCreateMetadata & IntentMetadataFlags)
+  | (OrderExecuteMetadata & IntentMetadataFlags)
+  | (OrderCancelMetadata & IntentMetadataFlags)
+  | (Record<string, unknown> & IntentMetadataFlags);
 
 export interface IntentMessage {
   intentId: string;

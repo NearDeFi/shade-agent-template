@@ -1,5 +1,6 @@
 import type { config } from "../config";
 import type { IntentChain, IntentMetadata, ValidatedIntent } from "../queue/types";
+import type { IntentState } from "../state/status";
 import type { MetricsCollector } from "./metrics";
 
 /**
@@ -26,7 +27,7 @@ export interface FlowContext {
   /** Logger instance */
   logger: Logger;
   /** Update intent status in Redis */
-  setStatus: (status: string, detail?: Record<string, unknown>) => Promise<void>;
+  setStatus: (status: IntentState, detail?: Record<string, unknown>) => Promise<void>;
   /** The intent ID being processed */
   intentId: string;
   /** Metrics collector for telemetry */

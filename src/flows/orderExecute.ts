@@ -22,12 +22,12 @@ import {
   ONE_YOCTO,
 } from "../utils/near";
 import { getIntentsQuote, IntentsQuoteRequest } from "../utils/intents";
-import { flowRegistry } from "./registry";
 import {
   getOrder,
   markOrderTriggered,
   markOrderExecuted,
   markOrderFailed,
+  transitionOrderState,
   Order,
   getOrderDescription,
 } from "../state/orders";
@@ -112,11 +112,13 @@ async function executeSolanaOrderSwap(
   const mintAddress = new PublicKey(order.sourceAsset);
   const sourceAta = getAssociatedTokenAddressSync(mintAddress, agentPublicKey);
   const depositPubkey = new PublicKey(depositAddress);
+  // SPL transfers must target a token account, not a raw wallet address
+  const destinationAta = getAssociatedTokenAddressSync(mintAddress, depositPubkey);
 
   const instructions = [
     createTransferInstruction(
       sourceAta,
-      depositPubkey,
+      destinationAta,
       agentPublicKey,
       BigInt(order.amount),
     ),
@@ -226,21 +228,30 @@ const orderExecuteFlow: FlowDefinition<OrderExecuteMetadata> = {
     logger.info(`Triggered at price: ${meta.triggeredPrice}`);
 
     // Get order
-    const order = await getOrder(meta.orderId);
+    let order = await getOrder(meta.orderId);
     if (!order) {
       throw new Error(`Order ${meta.orderId} not found`);
     }
 
     logger.info(`Order: ${getOrderDescription(order)}`);
 
+    if (order.state === "executed" && order.executionTxId) {
+      logger.info(`Order ${meta.orderId} already executed, returning existing tx`, {
+        txId: order.executionTxId,
+      });
+      return { txId: order.executionTxId };
+    }
+
     // Validate order state
     if (order.state !== "active" && order.state !== "triggered") {
       throw new Error(`Order ${meta.orderId} is ${order.state}, cannot execute`);
     }
 
-    // Mark as triggered
-    await markOrderTriggered(meta.orderId, meta.triggeredPrice);
+    if (order.state === "active") {
+      order = await markOrderTriggered(meta.orderId, meta.triggeredPrice);
+    }
 
+    let txId = order.executionTxId;
     try {
       // Get intents quote for the swap
       const quoteRequest = buildOrderQuoteRequest(order);
@@ -256,22 +267,47 @@ const orderExecuteFlow: FlowDefinition<OrderExecuteMetadata> = {
 
       logger.info(`Got intents deposit address: ${depositAddress}`);
 
-      // Execute the swap
-      let txId: string;
+      // Execute the swap once. If we already have an execution tx, avoid rebroadcast.
+      if (!txId) {
+        if (order.agentChain === "solana") {
+          txId = await executeSolanaOrderSwap(order, depositAddress, ctx);
+        } else if (order.agentChain === "near") {
+          txId = await executeNearOrderSwap(order, depositAddress, ctx);
+        } else {
+          throw new Error(`Unsupported custody chain: ${order.agentChain}`);
+        }
 
-      if (order.agentChain === "solana") {
-        txId = await executeSolanaOrderSwap(order, depositAddress, ctx);
-      } else if (order.agentChain === "near") {
-        txId = await executeNearOrderSwap(order, depositAddress, ctx);
-      } else {
-        throw new Error(`Unsupported custody chain: ${order.agentChain}`);
+        // Best-effort checkpoint to keep retries idempotent after broadcast.
+        try {
+          const checkpoint = await transitionOrderState(
+            meta.orderId,
+            "triggered",
+            "triggered",
+            { executionTxId: txId },
+          );
+          if (checkpoint.updated && checkpoint.order) {
+            order = checkpoint.order;
+          }
+        } catch (checkpointError) {
+          logger.error(`Failed to persist execution checkpoint for ${meta.orderId}`, {
+            err: String(checkpointError),
+            txId,
+          });
+        }
       }
 
       // Extract output amount from quote if available
       const outputAmount = (quoteResponse as any)?.destinationAmount;
 
-      // Mark as executed
-      await markOrderExecuted(meta.orderId, txId, outputAmount);
+      // Mark as executed. If persistence fails after broadcast, return tx to avoid duplicate sends.
+      try {
+        await markOrderExecuted(meta.orderId, txId, outputAmount);
+      } catch (persistError) {
+        logger.error(`Order ${meta.orderId} transfer was broadcast but execution state update failed`, {
+          err: String(persistError),
+          txId,
+        });
+      }
 
       logger.info(`Order ${meta.orderId} executed successfully: ${txId}`);
       logger.info(`Triggered at: ${meta.triggeredPrice}, Output: ${outputAmount || "pending"}`);
@@ -279,7 +315,15 @@ const orderExecuteFlow: FlowDefinition<OrderExecuteMetadata> = {
       return { txId };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      await markOrderFailed(meta.orderId, errorMessage);
+      if (!txId) {
+        try {
+          await markOrderFailed(meta.orderId, errorMessage);
+        } catch (markFailedError) {
+          logger.error(`Failed to persist failed state for order ${meta.orderId}`, {
+            err: String(markFailedError),
+          });
+        }
+      }
 
       logger.error(`Order ${meta.orderId} execution failed: ${errorMessage}`);
 
@@ -287,10 +331,6 @@ const orderExecuteFlow: FlowDefinition<OrderExecuteMetadata> = {
     }
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(orderExecuteFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

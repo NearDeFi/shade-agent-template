@@ -1,43 +1,11 @@
 import { config } from "../config";
 import { setStatus, IntentStatus } from "../state/status";
+import type { IntentState } from "../state/status";
 import { MetricsCollector } from "./metrics";
+import { createLogger } from "../utils/logger";
 import type { AppConfig, FlowContext, Logger } from "./types";
 
-/**
- * Default logger implementation using console
- */
-const defaultLogger: Logger = {
-  info: (message: string, data?: Record<string, unknown>) => {
-    if (data) {
-      console.log(`[flow] ${message}`, data);
-    } else {
-      console.log(`[flow] ${message}`);
-    }
-  },
-  warn: (message: string, data?: Record<string, unknown>) => {
-    if (data) {
-      console.warn(`[flow] ${message}`, data);
-    } else {
-      console.warn(`[flow] ${message}`);
-    }
-  },
-  error: (message: string, data?: Record<string, unknown>) => {
-    if (data) {
-      console.error(`[flow] ${message}`, data);
-    } else {
-      console.error(`[flow] ${message}`);
-    }
-  },
-  debug: (message: string, data?: Record<string, unknown>) => {
-    if (process.env.DEBUG) {
-      if (data) {
-        console.debug(`[flow] ${message}`, data);
-      } else {
-        console.debug(`[flow] ${message}`);
-      }
-    }
-  },
-};
+const defaultLogger = createLogger("flow");
 
 /**
  * Options for creating a flow context
@@ -50,7 +18,7 @@ export interface CreateFlowContextOptions {
   /** Custom logger (defaults to console logger) */
   logger?: Logger;
   /** Custom setStatus function (defaults to Redis-backed) */
-  setStatus?: (status: string, detail?: Record<string, unknown>) => Promise<void>;
+  setStatus?: (status: IntentState, detail?: Record<string, unknown>) => Promise<void>;
   /** Flow action identifier for metrics */
   flowAction?: string;
   /** Flow human-readable name for metrics */
@@ -70,9 +38,9 @@ export function createFlowContext(options: CreateFlowContextOptions): FlowContex
   // Create setStatus wrapper that adds the intentId
   const setStatusFn =
     options.setStatus ??
-    (async (status: string, detail?: Record<string, unknown>) => {
+    (async (status: IntentState, detail?: Record<string, unknown>) => {
       const statusPayload: IntentStatus = {
-        state: status as IntentStatus["state"],
+        state: status,
         ...detail,
       };
       await setStatus(intentId, statusPayload);

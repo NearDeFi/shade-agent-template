@@ -3,6 +3,9 @@ import { contracts, utils } from "chainsig.js";
 import { config } from "../config";
 import { parseSignature } from "./signature";
 import { SOLANA_DEFAULT_PATH } from "./solana";
+import { createLogger } from "./logger";
+
+const log = createLogger("chainSig");
 
 const { uint8ArrayToHex } = utils.cryptography;
 
@@ -49,7 +52,7 @@ export async function deriveNearImplicitAccount(
     IsEd25519: true,
   });
 
-  console.log(`[chainSignature] Derived key for path ${derivationPath}: ${derivedKey}`);
+  log.info("Derived key", { path: derivationPath, derivedKey: String(derivedKey) });
 
   // Parse the derived key - expecting ed25519 format (Ed25519:base58key)
   // The chainsig.js library returns "Ed25519:" prefix (capital E)
@@ -133,7 +136,7 @@ export async function signWithNearChainSignatures(
   }
 
   const payload = uint8ArrayToHex(payloadBytes);
-  console.log("[chainSignature] Requesting signature", {
+  log.info("Requesting signature", {
     path: derivationPath,
     payloadLength: payloadBytes.length,
     keyType: "Eddsa",
@@ -145,7 +148,7 @@ export async function signWithNearChainSignatures(
     keyType: "Eddsa",
   });
 
-  console.log("[chainSignature] Signature response", {
+  log.info("Signature response", {
     hasSignature: !!signRes?.signature,
     responseKeys: signRes ? Object.keys(signRes) : [],
     response: JSON.stringify(signRes).slice(0, 500),

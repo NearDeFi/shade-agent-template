@@ -39,6 +39,6 @@ describe("ethAccount route", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.senderAddress).toBe("0xabc");
-    expect(body.balance).toBe(123);
+    expect(body.balance).toBe("123");
   });
 });

@@ -9,56 +9,55 @@ import {
 import { getEthereumPriceUSD } from "../utils/fetch-eth-price";
 import { Contract, JsonRpcProvider } from "ethers";
 import { utils } from "chainsig.js";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError } from "./errorHandling";
 const { toRSV, uint8ArrayToHex } = utils.cryptography;
 
+const log = createLogger("transaction");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
-app.get("/", async (c) => {
-  try {
-    // Fetch the environment variable inside the route
-    const contractId = process.env.NEXT_PUBLIC_contractId;
-    if (!contractId) {
-      return c.json({ error: "Contract ID not configured" }, 500);
-    }
-
-    // Get the ETH price
-    const ethPrice = await getEthereumPriceUSD();
-    if (!ethPrice) {
-      return c.json({ error: "Failed to fetch ETH price" }, 500);
-    }
-
-    // Get the transaction and payload to sign
-    const { transaction, hashesToSign } = await getPricePayload(
-      ethPrice,
-      contractId,
-    );
-
-    // Call the agent contract to get a signature for the payload
-    const signRes = await requestSignature({
-      path: "ethereum-1",
-      payload: uint8ArrayToHex(hashesToSign[0]),
-      keyType: "Ecdsa",
-    });
-    console.log("signRes", signRes);
-
-    // Reconstruct the signed transaction
-    const signedTransaction = Evm.finalizeTransactionSigning({
-      transaction,
-      rsvSignatures: [toRSV(signRes)],
-    });
-
-    // Broadcast the signed transaction
-    const txHash = await Evm.broadcastTx(signedTransaction);
-
-    // Send back both the txHash and the new price optimistically
-    return c.json({
-      txHash: txHash.hash,
-      newPrice: (ethPrice / 100).toFixed(2),
-    });
-  } catch (error) {
-    console.error("Failed to send the transaction:", error);
-    return c.json({ error: "Failed to send the transaction" }, 500);
+app.post("/", async (c) => {
+  const contractId = process.env.NEXT_PUBLIC_contractId;
+  if (!contractId) {
+    throw new AppError("operation_failed", "Contract ID not configured");
   }
+
+  // Get the ETH price
+  const ethPrice = await getEthereumPriceUSD();
+  if (!ethPrice) {
+    throw new AppError("operation_failed", "Failed to fetch ETH price");
+  }
+
+  // Get the transaction and payload to sign
+  const { transaction, hashesToSign } = await getPricePayload(
+    ethPrice,
+    contractId,
+  );
+
+  // Call the agent contract to get a signature for the payload
+  const signRes = await requestSignature({
+    path: "ethereum-1",
+    payload: uint8ArrayToHex(hashesToSign[0]),
+    keyType: "Ecdsa",
+  });
+  log.info("Signature response received", { hasSignature: !!signRes });
+
+  // Reconstruct the signed transaction
+  const signedTransaction = Evm.finalizeTransactionSigning({
+    transaction,
+    rsvSignatures: [toRSV(signRes)],
+  });
+
+  // Broadcast the signed transaction
+  const txHash = await Evm.broadcastTx(signedTransaction);
+
+  // Send back both the txHash and the new price optimistically
+  return c.json({
+    txHash: txHash.hash,
+    newPrice: (ethPrice / 100).toFixed(2),
+  });
 });
 
 async function getPricePayload(ethPrice: number, contractId: string) {

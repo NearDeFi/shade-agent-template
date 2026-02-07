@@ -6,7 +6,6 @@ import {
   signAndBroadcastEvmTx,
 } from "../utils/evmChains";
 import { transferEvmTokensToUser, executeEvmBridgeBack } from "../utils/evmLending";
-import { flowRegistry } from "./registry";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowResult } from "./types";
 
@@ -198,10 +197,6 @@ const morphoWithdrawFlow: FlowDefinition<MorphoWithdrawMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ──────────────────────────────────────────────────────────
-
-flowRegistry.register(morphoWithdrawFlow);
 
 // ─── Exports ────────────────────────────────────────────────────────────────────
 

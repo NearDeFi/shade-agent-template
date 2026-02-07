@@ -4,6 +4,10 @@ if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: ".env.development.local" });
 }
 
+import { createLogger } from "./utils/logger";
+
+const log = createLogger("config");
+
 const chainSignatureNetwork =
   (process.env.NEAR_NETWORK as "mainnet" | "testnet") || "mainnet";
 export const isTestnet = chainSignatureNetwork === "testnet";
@@ -23,6 +27,15 @@ function parseNearRpcUrls(): string[] {
   } catch {
     return [];
   }
+}
+
+function parseCorsAllowedOrigins(): string[] {
+  const value = process.env.CORS_ALLOWED_ORIGINS;
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
 }
 
 export const config = {
@@ -90,8 +103,15 @@ export const config = {
   permissionContractId:
     process.env.PERMISSION_CONTRACT_ID ||
     (isTestnet ? "permission.shade.testnet" : "permission.shade.near"),
+  /** Secret key required for manual order funding endpoint (disabled when empty) */
+  orderFundingApiKey: process.env.ORDER_FUNDING_API_KEY || "",
+  /** Reconciliation timeout for orders stuck in "triggered" state (default: 5 minutes) */
+  orderTriggeredTimeoutMs:
+    parseInt(process.env.ORDER_TRIGGERED_TIMEOUT_MS || "", 10) || 5 * 60 * 1000,
+  /** Optional explicit CORS allow-list. Empty list falls back to wildcard. */
+  corsAllowedOrigins: parseCorsAllowedOrigins(),
 };
 
 if (!config.shadeContractId) {
-  console.warn("NEXT_PUBLIC_contractId is not set; derived keys will be empty");
+  log.warn("NEXT_PUBLIC_contractId is not set; derived keys will be empty");
 }

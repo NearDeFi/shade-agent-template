@@ -8,8 +8,13 @@ export async function fetchWithTimeout(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
+  // Compose caller's signal with timeout signal so both can abort the fetch
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, controller.signal])
+    : controller.signal;
+
   try {
-    return await fetch(input, { ...init, signal: init?.signal ?? controller.signal });
+    return await fetch(input, { ...init, signal });
   } finally {
     clearTimeout(timeout);
   }

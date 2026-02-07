@@ -11,7 +11,6 @@ import {
   GAS_FOR_FT_TRANSFER_CALL,
   ONE_YOCTO,
 } from "../utils/near";
-import { flowRegistry } from "./registry";
 import { logNearAddressInfo } from "./context";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig } from "./types";
@@ -122,10 +121,6 @@ const burrowDepositFlow: FlowDefinition<BurrowDepositMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(burrowDepositFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

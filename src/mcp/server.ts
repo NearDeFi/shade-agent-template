@@ -2,24 +2,27 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { flowRegistry, createFlowContext } from "../flows";
-import { validateIntent } from "../queue/validation";
+import {
+  createDefaultFlowCatalog,
+  createFlowContext,
+  type FlowCatalog,
+} from "../flows";
+import {
+  createIntentValidator,
+  type IntentValidator,
+} from "../queue/validation";
 import { config } from "../config";
 import type { IntentMessage } from "../queue/types";
-import { OneClickService, OpenAPI } from "@defuse-protocol/one-click-sdk-typescript";
+import { createLogger } from "../utils/logger";
+import { ensureIntentsApiBase } from "../infra/intentsApi";
+
+const log = createLogger("mcp");
+import { OneClickService } from "@defuse-protocol/one-click-sdk-typescript";
 import { getUserPositions as getBurrowPositions, listBurrowMarkets } from "../utils/burrow";
 import { deriveAgentPublicKey, SOLANA_DEFAULT_PATH } from "../utils/solana";
 import { deriveNearImplicitAccount, NEAR_DEFAULT_PATH } from "../utils/chainSignature";
 import { createSolanaRpc, address } from "@solana/kit";
 import { KaminoMarket, PROGRAM_ID } from "@kamino-finance/klend-sdk";
-
-// Import flows to ensure they're registered
-import "../flows/solSwap";
-import "../flows/nearSwap";
-import "../flows/kaminoDeposit";
-import "../flows/kaminoWithdraw";
-import "../flows/burrowDeposit";
-import "../flows/burrowWithdraw";
 
 // ─── Tool Schemas ───────────────────────────────────────────────────────────────
 
@@ -84,10 +87,18 @@ function generateIntentId(): string {
   return `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function executeFlow(intentMessage: IntentMessage): Promise<{ txId: string; details?: Record<string, unknown> }> {
-  const intent = validateIntent(intentMessage);
+interface McpServerDeps {
+  flowCatalog: FlowCatalog;
+  validateIntent: IntentValidator;
+}
 
-  const flow = flowRegistry.findMatch(intent);
+async function executeFlow(
+  intentMessage: IntentMessage,
+  deps: McpServerDeps,
+): Promise<{ txId: string; details?: Record<string, unknown> }> {
+  const intent = deps.validateIntent(intentMessage);
+
+  const flow = deps.flowCatalog.findMatch(intent);
   if (!flow) {
     throw new Error(`No flow found for action: ${intent.metadata?.action}`);
   }
@@ -118,7 +129,12 @@ async function executeFlow(intentMessage: IntentMessage): Promise<{ txId: string
 
 // ─── MCP Server ─────────────────────────────────────────────────────────────────
 
-export function createMcpServer(): McpServer {
+export function createMcpServer(
+  deps?: Partial<McpServerDeps>,
+): McpServer {
+  const flowCatalog = deps?.flowCatalog ?? createDefaultFlowCatalog();
+  const validateIntent = deps?.validateIntent ?? createIntentValidator(flowCatalog);
+
   const server = new McpServer({
     name: "shade-agent",
     version: "1.0.0",
@@ -130,7 +146,7 @@ export function createMcpServer(): McpServer {
     "List all available DeFi flows and their capabilities",
     ListFlowsSchema.shape,
     async () => {
-      const flows = flowRegistry.getAll().map((flow) => ({
+      const flows = flowCatalog.getAll().map((flow) => ({
         action: flow.action,
         name: flow.name,
         description: flow.description,
@@ -185,7 +201,10 @@ export function createMcpServer(): McpServer {
       };
 
       try {
-        const result = await executeFlow(intentMessage);
+        const result = await executeFlow(intentMessage, {
+          flowCatalog,
+          validateIntent,
+        });
         return {
           content: [
             {
@@ -261,7 +280,10 @@ export function createMcpServer(): McpServer {
       }
 
       try {
-        const result = await executeFlow(intentMessage);
+        const result = await executeFlow(intentMessage, {
+          flowCatalog,
+          validateIntent,
+        });
         return {
           content: [
             {
@@ -340,7 +362,10 @@ export function createMcpServer(): McpServer {
       }
 
       try {
-        const result = await executeFlow(intentMessage);
+        const result = await executeFlow(intentMessage, {
+          flowCatalog,
+          validateIntent,
+        });
         return {
           content: [
             {
@@ -380,10 +405,7 @@ export function createMcpServer(): McpServer {
       const { sourceChain, destinationChain, sourceAsset, destinationAsset, amount, slippageBps } = params;
 
       try {
-        // Configure API base URL
-        if (config.intentsQuoteUrl) {
-          OpenAPI.BASE = config.intentsQuoteUrl;
-        }
+        ensureIntentsApiBase();
 
         const quoteRequest = {
           originAsset: sourceAsset,
@@ -394,7 +416,7 @@ export function createMcpServer(): McpServer {
           dry: true, // Don't create deposit address, just get quote
         };
 
-        console.error("[MCP] Requesting quote", quoteRequest);
+        log.info("Requesting quote", quoteRequest as unknown as Record<string, unknown>);
 
         const quoteResponse = await OneClickService.getQuote(quoteRequest as any) as any;
 
@@ -456,7 +478,7 @@ export function createMcpServer(): McpServer {
             userAddress,
           );
 
-          console.error(`[MCP] Fetching Burrow positions for derived account: ${accountId}`);
+          log.info("Fetching Burrow positions", { derivedAccountId: accountId });
 
           const positions = await getBurrowPositions(accountId);
 
@@ -504,7 +526,7 @@ export function createMcpServer(): McpServer {
           );
           const derivedSolanaAddress = userPublicKey.toBase58();
 
-          console.error(`[MCP] Fetching Kamino positions for derived address: ${derivedSolanaAddress}`);
+          log.info("Fetching Kamino positions", { derivedSolanaAddress });
 
           // Load Kamino market
           const rpc = createSolanaRpc(config.solRpcUrl);
@@ -622,7 +644,7 @@ export function createMcpServer(): McpServer {
 
       try {
         if (protocol === "burrow") {
-          console.error("[MCP] Fetching Burrow markets");
+          log.info("Fetching Burrow markets");
 
           const markets = await listBurrowMarkets();
 
@@ -706,11 +728,16 @@ export function createMcpServer(): McpServer {
 // ─── Main Entry Point ───────────────────────────────────────────────────────────
 
 export async function startMcpServer(): Promise<void> {
-  const server = createMcpServer();
+  const flowCatalog = createDefaultFlowCatalog();
+  const validateIntent = createIntentValidator(flowCatalog);
+  const server = createMcpServer({
+    flowCatalog,
+    validateIntent,
+  });
   const transport = new StdioServerTransport();
 
   await server.connect(transport);
 
-  console.error("[MCP] Shade Agent MCP server started");
-  console.error("[MCP] Available tools: list_flows, swap, lending_deposit, lending_withdraw, get_quote, get_positions, list_markets");
+  log.info("Shade Agent MCP server started");
+  log.info("Available tools: list_flows, swap, lending_deposit, lending_withdraw, get_quote, get_positions, list_markets");
 }

@@ -1,31 +1,51 @@
-/**
- * Flow Registry Index
- *
- * Imports all flows to trigger self-registration with the flow registry.
- * This file should be imported at application startup to ensure all flows
- * are registered before the queue consumer starts.
- */
+import { createFlowRegistry } from "./registry";
+import type { FlowCatalog } from "./catalog";
+import { kaminoDepositFlow } from "./kaminoDeposit";
+import { kaminoWithdrawFlow } from "./kaminoWithdraw";
+import { burrowDepositFlow } from "./burrowDeposit";
+import { burrowWithdrawFlow } from "./burrowWithdraw";
+import { solSwapFlow } from "./solSwap";
+import { nearSwapFlow } from "./nearSwap";
+import { orderCreateFlow } from "./orderCreate";
+import { orderExecuteFlow } from "./orderExecute";
+import { orderCancelFlow } from "./orderCancel";
+import { solBridgeOutFlow } from "./solBridgeOut";
+import { nearBridgeOutFlow } from "./nearBridgeOut";
+import { evmSwapFlow } from "./evmSwap";
+import { aaveDepositFlow } from "./aaveDeposit";
+import { aaveWithdrawFlow } from "./aaveWithdraw";
+import { morphoDepositFlow } from "./morphoDeposit";
+import { morphoWithdrawFlow } from "./morphoWithdraw";
 
-// Import all flows to trigger self-registration
-import "./kaminoDeposit";
-import "./kaminoWithdraw";
-import "./burrowDeposit";
-import "./burrowWithdraw";
-import "./solSwap";
-import "./nearSwap";
-import "./orderCreate";
-import "./orderExecute";
-import "./orderCancel";
-import "./solBridgeOut";
-import "./nearBridgeOut";
-import "./evmSwap";
-import "./aaveDeposit";
-import "./aaveWithdraw";
-import "./morphoDeposit";
-import "./morphoWithdraw";
+const defaultFlows = [
+  kaminoDepositFlow,
+  kaminoWithdrawFlow,
+  burrowDepositFlow,
+  burrowWithdrawFlow,
+  solSwapFlow,
+  nearSwapFlow,
+  orderCreateFlow,
+  orderExecuteFlow,
+  orderCancelFlow,
+  solBridgeOutFlow,
+  nearBridgeOutFlow,
+  evmSwapFlow,
+  aaveDepositFlow,
+  aaveWithdrawFlow,
+  morphoDepositFlow,
+  morphoWithdrawFlow,
+];
 
-// Re-export registry and types for external use
-export { flowRegistry } from "./registry";
+export function createDefaultFlowCatalog(): FlowCatalog {
+  const registry = createFlowRegistry();
+  for (const flow of defaultFlows) {
+    registry.register(flow);
+  }
+  registry.setDefault(solSwapFlow);
+  return registry;
+}
+
+// Re-export types for external use
 export { createFlowContext, createMockFlowContext } from "./context";
 export type {
   FlowDefinition,
@@ -34,21 +54,15 @@ export type {
   AppConfig,
   Logger,
 } from "./types";
+export type { FlowCatalog } from "./catalog";
 
 // Re-export individual flows for direct access if needed
-export { kaminoDepositFlow } from "./kaminoDeposit";
-export { kaminoWithdrawFlow } from "./kaminoWithdraw";
-export { burrowDepositFlow } from "./burrowDeposit";
-export { burrowWithdrawFlow } from "./burrowWithdraw";
-export { solSwapFlow } from "./solSwap";
-export { nearSwapFlow } from "./nearSwap";
+export { kaminoDepositFlow, kaminoWithdrawFlow };
+export { burrowDepositFlow, burrowWithdrawFlow };
+export { solSwapFlow, nearSwapFlow };
 export { orderCreateFlow, deriveOrderAgentAddress } from "./orderCreate";
-export { orderExecuteFlow } from "./orderExecute";
-export { orderCancelFlow } from "./orderCancel";
-export { solBridgeOutFlow } from "./solBridgeOut";
-export { nearBridgeOutFlow } from "./nearBridgeOut";
-export { evmSwapFlow } from "./evmSwap";
-export { aaveDepositFlow } from "./aaveDeposit";
-export { aaveWithdrawFlow } from "./aaveWithdraw";
-export { morphoDepositFlow } from "./morphoDeposit";
-export { morphoWithdrawFlow } from "./morphoWithdraw";
+export { orderExecuteFlow, orderCancelFlow };
+export { solBridgeOutFlow, nearBridgeOutFlow };
+export { evmSwapFlow };
+export { aaveDepositFlow, aaveWithdrawFlow };
+export { morphoDepositFlow, morphoWithdrawFlow };

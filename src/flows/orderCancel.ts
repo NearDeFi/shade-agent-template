@@ -24,7 +24,6 @@ import {
   ONE_YOCTO,
   getNearProvider,
 } from "../utils/near";
-import { flowRegistry } from "./registry";
 import {
   getOrder,
   setOrderState,
@@ -131,7 +130,7 @@ async function getNearRemainingBalance(
       args_base64: Buffer.from(JSON.stringify({ account_id: agentAccount.accountId })).toString("base64"),
     });
 
-    const balance = JSON.parse(Buffer.from((result as any).result).toString());
+    const balance = JSON.parse(Buffer.from((result as unknown as { result: number[] }).result).toString());
     return balance;
   } catch {
     return "0";
@@ -275,10 +274,6 @@ const orderCancelFlow: FlowDefinition<OrderCancelMetadata> = {
     };
   },
 };
-
-// ─── Self-Registration ─────────────────────────────────────────────────────────
-
-flowRegistry.register(orderCancelFlow);
 
 // ─── Exports ───────────────────────────────────────────────────────────────────
 

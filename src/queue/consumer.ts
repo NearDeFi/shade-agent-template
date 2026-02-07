@@ -1,294 +1,157 @@
 import { setStatus } from "../state/status";
-import { RedisQueueClient } from "./redis";
-import { IntentMessage, ValidatedIntent } from "./types";
-import { validateIntent } from "./validation";
+import { createDefaultFlowCatalog, createFlowContext, type FlowCatalog } from "../flows";
 import { config } from "../config";
-import { flowRegistry, createFlowContext } from "../flows";
-import { emitFlowMetrics, categorizeError } from "../flows/metrics";
-import { refundSolanaTokensToUser, refundNearTokensToUser, refundEvmTokensToUser } from "../utils/refund";
-import { EVM_SWAP_CHAINS, EvmChainName } from "../utils/evmChains";
+import { delay } from "../utils/common";
+import { createLogger } from "../utils/logger";
+import { RedisQueueClient } from "./redis";
+import type { IntentMessage } from "./types";
+import { createIntentProcessor, type IntentProcessor } from "./intentProcessor";
+import { createIntentValidator, type IntentValidator } from "./validation";
+import {
+  type BackgroundTaskHandle,
+  createLinkedAbortController,
+  delayWithSignal,
+} from "./runtime";
+
+const log = createLogger("consumer");
+
+interface StartQueueConsumerOptions {
+  signal?: AbortSignal;
+  pollTimeoutSeconds?: number;
+  flowCatalog?: FlowCatalog;
+  validateIntent?: IntentValidator;
+  processor?: IntentProcessor;
+}
 
 /**
  * Starts the queue consumer with parallel processing support.
  * Uses a worker pool pattern to process multiple intents concurrently.
  */
-export async function startQueueConsumer() {
+export function startQueueConsumer(
+  options: StartQueueConsumerOptions = {},
+): BackgroundTaskHandle {
   const queue = new RedisQueueClient();
+  const controller = createLinkedAbortController(options.signal);
+  const signal = controller.signal;
   const concurrency = config.queueConcurrency;
-  let activeWorkers = 0;
+  const pollTimeoutSeconds = options.pollTimeoutSeconds ?? 1;
+  const inFlight = new Set<Promise<void>>();
 
-  console.log(`Starting queue consumer with concurrency: ${concurrency}`);
+  const flowCatalog = options.flowCatalog ?? (
+    process.env.NODE_ENV === "test"
+      ? createDefaultFlowCatalog()
+      : (() => {
+          throw new Error(
+            "Queue consumer requires an injected flow catalog. Initialize flows in startup composition.",
+          );
+        })()
+  );
+  const validateIntent = options.validateIntent ?? createIntentValidator(flowCatalog);
+  const processor =
+    options.processor ??
+    createIntentProcessor({
+      appConfig: config,
+      flowCatalog,
+      validateIntent,
+      createFlowContext,
+      setStatus,
+      queue: {
+        moveToDeadLetter: async (raw) => queue.moveToDeadLetter(raw),
+      },
+      delay,
+      logger: log,
+    });
 
-  // Fire-and-forget loop; log errors so the server keeps running.
-  (async () => {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+  log.info(`Starting queue consumer with concurrency: ${concurrency}`);
+  const loopPromise = (async () => {
+    while (!signal.aborted) {
       // Wait if we've hit max concurrency
-      if (activeWorkers >= concurrency) {
-        await delay(100);
+      if (inFlight.size >= concurrency) {
+        await delayWithSignal(100, signal);
         continue;
       }
 
-      const next = await queue.fetchNextIntent();
+      let next: Awaited<ReturnType<RedisQueueClient["fetchNextIntent"]>>;
+      try {
+        next = await queue.fetchNextIntent(pollTimeoutSeconds);
+      } catch (err) {
+        if (signal.aborted) break;
+        log.error("Failed to fetch next intent from queue", { err: String(err) });
+        await delayWithSignal(200, signal);
+        continue;
+      }
+      if (signal.aborted) {
+        break;
+      }
       if (!next.intent || !next.raw) {
         if (next.raw) {
-          console.warn("[consumer] Received malformed intent message, acknowledging and skipping:", next.raw.substring(0, 200));
-          await queue.ackIntent(next.raw);
+          log.warn("Received malformed intent message, acknowledging and skipping", {
+            raw: next.raw.substring(0, 200),
+          });
+          try {
+            await queue.ackIntent(next.raw);
+          } catch (err) {
+            log.error("Failed to acknowledge malformed intent message", {
+              err: String(err),
+            });
+          }
         }
         continue;
       }
 
-      // Spawn worker for this intent (don't await - run in parallel)
-      activeWorkers++;
-      processIntent(next.intent, next.raw, queue)
+      const worker = processRawIntent(next.intent, next.raw, queue, processor)
+        .catch((err) => {
+          log.error("Uncaught worker error while processing intent", {
+            err: String(err),
+          });
+        })
         .finally(() => {
-          activeWorkers--;
+          inFlight.delete(worker);
         });
+      inFlight.add(worker);
     }
-  })().catch((err) => {
-    console.error("Queue consumer crashed", err);
-  });
+  })()
+    .catch((err) => {
+      log.error("Queue consumer crashed", { err: String(err) });
+    })
+    .finally(async () => {
+      if (inFlight.size > 0) {
+        await Promise.allSettled(Array.from(inFlight));
+      }
+      await queue.close();
+      log.info("Queue consumer stopped");
+    });
+
+  return {
+    stopped: loopPromise,
+    stop: async () => {
+      controller.abort();
+      await loopPromise;
+    },
+  };
 }
 
-/**
- * Processes a single intent with validation, retry logic, and cleanup.
- */
-async function processIntent(
+async function processRawIntent(
   intentMessage: IntentMessage,
   raw: string,
   queue: RedisQueueClient,
-) {
+  processor: IntentProcessor,
+): Promise<void> {
+  let processed = false;
   try {
-    const intent = validateIntent(intentMessage);
-    await processIntentWithRetry(intent, raw, queue);
-  } catch (err) {
-    console.error("Intent processing failed", err);
-    await setStatus(intentMessage.intentId, {
-      state: "failed",
-      error: (err as Error).message || "unknown error",
-    });
+    await processor.processIntent(intentMessage, raw);
+    processed = true;
   } finally {
-    await queue.ackIntent(raw);
-  }
-}
-
-async function processIntentWithRetry(
-  intent: ValidatedIntent,
-  raw: string,
-  queue: RedisQueueClient,
-) {
-  let attempt = 0;
-  while (attempt < config.maxIntentAttempts) {
-    attempt += 1;
-    try {
-      await setStatus(intent.intentId, {
-        state: "processing",
-        detail: `attempt ${attempt}/${config.maxIntentAttempts}`,
-      });
-
-      const result = await executeIntentFlow(intent);
-
-      // If the intent is awaiting intents delivery, don't overwrite the status
-      // The poller will handle the next step when intents completes
-      if (result.txId.startsWith("awaiting-intents-")) {
-        return;
-      }
-
-      await setStatus(intent.intentId, {
-        state: "succeeded",
-        txId: result.txId,
-      });
+    // Only acknowledge after the processor fully completes.
+    // If processor throws (e.g., status persistence failure), keep the message
+    // unacked to avoid silent loss.
+    if (!processed) {
       return;
+    }
+    try {
+      await queue.ackIntent(raw);
     } catch (err) {
-      const isLast = attempt >= config.maxIntentAttempts;
-      console.error(
-        `Intent ${intent.intentId} failed on attempt ${attempt}/${config.maxIntentAttempts}`,
-        err,
-      );
-      if (isLast) {
-        // Attempt to refund intermediate tokens to the user before marking as failed
-        const refundResult = await attemptRefund(intent);
-
-        await setStatus(intent.intentId, {
-          state: "failed",
-          error: (err as Error).message || "unknown error",
-          ...(refundResult && {
-            refundTxId: refundResult.txId,
-            detail: `Refund sent: ${refundResult.amount} to ${intent.userDestination}`,
-          }),
-        });
-        await queue.moveToDeadLetter(raw);
-        return;
-      }
-      await setStatus(intent.intentId, {
-        state: "processing",
-        detail: `retrying (attempt ${attempt + 1}/${config.maxIntentAttempts})`,
-      });
-      await delay(config.intentRetryBackoffMs * attempt);
+      log.error("Failed to acknowledge intent", { err: String(err) });
     }
-  }
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Attempts to refund intermediate tokens to the user after all retry attempts
- * have been exhausted. Only applicable for chained cross-chain swaps where the
- * bridge leg completed (intentsCompleted) but the destination swap failed.
- */
-async function attemptRefund(
-  intent: ValidatedIntent,
-): Promise<{ txId: string; amount: string } | null> {
-  if (!intent.intermediateAsset || !intent.userDestination) return null;
-
-  // Only refund if the bridge leg already completed — otherwise Defuse handles the refund
-  if (!(intent.metadata as any)?.intentsCompleted) return null;
-
-  try {
-    if (intent.destinationChain === "solana") {
-      return await refundSolanaTokensToUser(
-        intent.intermediateAsset,
-        intent.userDestination,
-        console,
-        config.dryRunSwaps,
-      );
-    }
-    if (intent.destinationChain === "near") {
-      return await refundNearTokensToUser(
-        intent.intermediateAsset,
-        intent.userDestination,
-        console,
-        config.dryRunSwaps,
-      );
-    }
-    if (EVM_SWAP_CHAINS.includes(intent.destinationChain as EvmChainName)) {
-      return await refundEvmTokensToUser(
-        intent.destinationChain as EvmChainName,
-        intent.intermediateAsset,
-        intent.userDestination,
-        console,
-        config.dryRunSwaps,
-      );
-    }
-  } catch (refundErr) {
-    console.error(
-      `[consumer] Refund attempt failed for ${intent.intentId}:`,
-      refundErr,
-    );
-  }
-  return null;
-}
-
-/**
- * Check if this is a cross-chain swap that needs to wait for intents delivery
- */
-function needsIntentsWait(intent: ValidatedIntent): boolean {
-  // If intents already completed (re-queued by poller), skip waiting
-  if ((intent.metadata as any)?.intentsCompleted) {
-    return false;
-  }
-
-  // Sell flow: user TX already confirmed on-chain, no bridge-in needed
-  if ((intent.metadata as any)?.userTxConfirmed) {
-    return false;
-  }
-
-  // If there's a deposit address and intermediate amount, this is a cross-chain swap
-  // that needs to wait for intents to deliver funds
-  if (intent.intentsDepositAddress && intent.intermediateAmount) {
-    return true;
-  }
-
-  // If source chain is different from destination chain and we have intermediate asset
-  if (intent.sourceChain !== intent.destinationChain && intent.intermediateAsset) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Routes the intent to the appropriate execution flow based on metadata.
- * Uses the flow registry to find and execute the matching flow.
- */
-async function executeIntentFlow(
-  intent: ValidatedIntent,
-): Promise<{ txId: string }> {
-  // Check if we need to wait for intents cross-chain swap to complete
-  if (needsIntentsWait(intent)) {
-    console.log(`[consumer] Intent ${intent.intentId} needs to wait for intents delivery`);
-
-    // Set status to awaiting_intents with all the info needed to poll and re-process
-    await setStatus(intent.intentId, {
-      state: "awaiting_intents",
-      detail: "Waiting for cross-chain swap to complete",
-      depositAddress: intent.intentsDepositAddress,
-      depositMemo: intent.depositMemo,
-      intentData: intent,
-    });
-
-    // Return a placeholder - the actual swap will happen after poller detects completion
-    return { txId: `awaiting-intents-${intent.intentId}` };
-  }
-
-  // Find matching flow from registry
-  const flow = flowRegistry.findMatch(intent);
-
-  if (!flow) {
-    const action = intent.metadata?.action;
-    throw new Error(
-      `No flow registered for action: ${action ?? "undefined"}. ` +
-      `Registered flows: ${flowRegistry.getAll().map((f) => f.action).join(", ")}`
-    );
-  }
-
-  console.log(`[consumer] Dispatching intent ${intent.intentId} to flow: ${flow.action}`);
-
-  // Create flow context with status update capability and metrics
-  const ctx = createFlowContext({
-    intentId: intent.intentId,
-    config,
-    flowAction: flow.action,
-    flowName: flow.name,
-    setStatus: async (status, detail) => {
-      await setStatus(intent.intentId, {
-        state: status as any,
-        ...detail,
-      });
-    },
-  });
-
-  // Set chain info for metrics
-  ctx.metrics.setChains(intent.sourceChain, intent.destinationChain);
-  ctx.metrics.setAmounts(intent.sourceAmount);
-
-  try {
-    // Validate authorization if the flow requires it
-    if (flow.validateAuthorization) {
-      ctx.metrics.startStep("authorization");
-      await flow.validateAuthorization(intent as any, ctx);
-      ctx.metrics.endStep(true);
-    }
-
-    // Execute the flow
-    ctx.metrics.startStep("execute");
-    const result = await flow.execute(intent as any, ctx);
-    ctx.metrics.endStep(true);
-
-    // Capture result data for metrics
-    if (result.txId) ctx.metrics.setTxId(result.txId);
-    if (result.swappedAmount) ctx.metrics.setAmounts(intent.sourceAmount, result.swappedAmount);
-
-    // Emit success metrics
-    emitFlowMetrics(ctx.metrics.success(), ctx.logger);
-
-    return result;
-  } catch (err) {
-    // Emit failure metrics
-    const errorType = categorizeError(err);
-    emitFlowMetrics(ctx.metrics.failure(errorType, (err as Error).message), ctx.logger);
-    throw err;
   }
 }

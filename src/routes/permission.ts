@@ -31,8 +31,13 @@ import {
   type AllowedOperationInput,
 } from "../permission";
 import { verifySolanaSignature } from "../utils/solanaSignature";
+import { createLogger } from "../utils/logger";
+import { AppError } from "../errors/appError";
+import { handleRouteError, parseJsonBody } from "./errorHandling";
 
+const log = createLogger("permission");
 const app = new Hono();
+app.onError((err, c) => handleRouteError(c, err, log));
 
 // ─── Query Endpoints ────────────────────────────────────────────────────────────
 
@@ -54,12 +59,14 @@ app.get("/:derivationPath", async (c) => {
   try {
     const permissions = await getPermissions(derivationPath);
     if (!permissions) {
-      return c.json({ error: "No permissions found for derivation path" }, 404);
+      throw new AppError("not_found", "No permissions found for derivation path");
     }
     return c.json(permissions);
   } catch (err) {
-    console.error("[permission] Error fetching permissions:", err);
-    return c.json({ error: "Failed to fetch permissions" }, 500);
+    if (err instanceof AppError) throw err;
+    throw new AppError("operation_failed", "Failed to fetch permissions", {
+      cause: err,
+    });
   }
 });
 
@@ -74,12 +81,14 @@ app.get("/:derivationPath/:operationId", async (c) => {
   try {
     const operation = await getOperation(derivationPath, operationId);
     if (!operation) {
-      return c.json({ error: "Operation not found" }, 404);
+      throw new AppError("not_found", "Operation not found");
     }
     return c.json(operation);
   } catch (err) {
-    console.error("[permission] Error fetching operation:", err);
-    return c.json({ error: "Failed to fetch operation" }, 500);
+    if (err instanceof AppError) throw err;
+    throw new AppError("operation_failed", "Failed to fetch operation", {
+      cause: err,
+    });
   }
 });
 
@@ -95,8 +104,9 @@ app.get("/active", async (c) => {
     const operations = await getActiveOperations(fromIndex, limit);
     return c.json({ operations, count: operations.length });
   } catch (err) {
-    console.error("[permission] Error fetching active operations:", err);
-    return c.json({ error: "Failed to fetch active operations" }, 500);
+    throw new AppError("operation_failed", "Failed to fetch active operations", {
+      cause: err,
+    });
   }
 });
 
@@ -110,12 +120,14 @@ app.get("/wallet/:address", async (c) => {
   try {
     const derivationPath = await getDerivationPathForWallet(address);
     if (!derivationPath) {
-      return c.json({ error: "Wallet not registered" }, 404);
+      throw new AppError("not_found", "Wallet not registered");
     }
     return c.json({ derivationPath });
   } catch (err) {
-    console.error("[permission] Error looking up wallet:", err);
-    return c.json({ error: "Failed to lookup wallet" }, 500);
+    if (err instanceof AppError) throw err;
+    throw new AppError("operation_failed", "Failed to lookup wallet", {
+      cause: err,
+    });
   }
 });
 
@@ -131,8 +143,9 @@ app.get("/check/:derivationPath/:operationId", async (c) => {
     const allowed = await isOperationAllowed(derivationPath, operationId);
     return c.json({ allowed });
   } catch (err) {
-    console.error("[permission] Error checking operation:", err);
-    return c.json({ error: "Failed to check operation" }, 500);
+    throw new AppError("operation_failed", "Failed to check operation", {
+      cause: err,
+    });
   }
 });
 
@@ -153,17 +166,12 @@ interface RegisterWalletRequest {
  * Register a wallet for a derivation path
  */
 app.post("/register", async (c) => {
-  let body: RegisterWalletRequest;
-  try {
-    body = await c.req.json<RegisterWalletRequest>();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
+  const body = await parseJsonBody<RegisterWalletRequest>(c);
 
   const { derivationPath, walletType, publicKey, chainAddress, signature, message, nonce } = body;
 
   if (!derivationPath || !walletType || !publicKey || !chainAddress || !signature || !message || nonce === undefined) {
-    return c.json({ error: "Missing required fields" }, 400);
+    throw new AppError("invalid_request", "Missing required fields");
   }
 
   try {
@@ -181,7 +189,7 @@ app.post("/register", async (c) => {
     );
 
     if (!isValid) {
-      return c.json({ error: "Invalid signature" }, 401);
+      throw new AppError("unauthorized", "Invalid signature");
     }
 
     // Call contract
@@ -198,9 +206,13 @@ app.post("/register", async (c) => {
     const txHash = await registerWallet(args);
     return c.json({ success: true, txHash, derivationPath });
   } catch (err) {
-    console.error("[permission] Error registering wallet:", err);
+    if (err instanceof AppError) throw err;
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    return c.json({ error: `Failed to register wallet: ${errorMessage}` }, 500);
+    throw new AppError(
+      "operation_failed",
+      `Failed to register wallet: ${errorMessage}`,
+      { cause: err },
+    );
   }
 });
 
@@ -230,12 +242,7 @@ interface AddOperationRequest {
  * Add an allowed operation
  */
 app.post("/operation", async (c) => {
-  let body: AddOperationRequest;
-  try {
-    body = await c.req.json<AddOperationRequest>();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
+  const body = await parseJsonBody<AddOperationRequest>(c);
 
   const {
     derivationPath,
@@ -257,14 +264,14 @@ app.post("/operation", async (c) => {
 
   if (!derivationPath || !operationType || !sourceAsset || !targetAsset || !maxAmount ||
       !destinationAddress || !destinationChain || !signature || !message) {
-    return c.json({ error: "Missing required fields" }, 400);
+    throw new AppError("invalid_request", "Missing required fields");
   }
 
   try {
     // Get user's registered wallet to verify signature
     const permissions = await getPermissions(derivationPath);
     if (!permissions || permissions.owner_wallets.length === 0) {
-      return c.json({ error: "No registered wallet for derivation path" }, 404);
+      throw new AppError("not_found", "No registered wallet for derivation path");
     }
 
     const wallet = permissions.owner_wallets[0];
@@ -280,7 +287,7 @@ app.post("/operation", async (c) => {
     );
 
     if (!isValid) {
-      return c.json({ error: "Invalid signature" }, 401);
+      throw new AppError("unauthorized", "Invalid signature");
     }
 
     // Build operation input
@@ -297,7 +304,7 @@ app.post("/operation", async (c) => {
       });
     } else if (operationType === "limit-order") {
       if (!priceAsset || !quoteAsset || !triggerPrice || !condition) {
-        return c.json({ error: "Missing price condition fields for limit order" }, 400);
+        throw new AppError("invalid_request", "Missing price condition fields for limit order");
       }
       operation = createLimitOrderOperation({
         priceAsset,
@@ -314,7 +321,7 @@ app.post("/operation", async (c) => {
       });
     } else if (operationType === "stop-loss") {
       if (!priceAsset || !quoteAsset || !triggerPrice) {
-        return c.json({ error: "Missing price fields for stop-loss" }, 400);
+        throw new AppError("invalid_request", "Missing price fields for stop-loss");
       }
       operation = createStopLossOperation({
         priceAsset,
@@ -330,7 +337,7 @@ app.post("/operation", async (c) => {
       });
     } else if (operationType === "take-profit") {
       if (!priceAsset || !quoteAsset || !triggerPrice) {
-        return c.json({ error: "Missing price fields for take-profit" }, 400);
+        throw new AppError("invalid_request", "Missing price fields for take-profit");
       }
       operation = createTakeProfitOperation({
         priceAsset,
@@ -345,7 +352,7 @@ app.post("/operation", async (c) => {
         expiresAt,
       });
     } else {
-      return c.json({ error: "Unknown operation type" }, 400);
+      throw new AppError("invalid_request", "Unknown operation type");
     }
 
     // Call contract
@@ -359,9 +366,13 @@ app.post("/operation", async (c) => {
     const { txHash, operationId } = await addAllowedOperation(args);
     return c.json({ success: true, txHash, operationId, derivationPath });
   } catch (err) {
-    console.error("[permission] Error adding operation:", err);
+    if (err instanceof AppError) throw err;
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    return c.json({ error: `Failed to add operation: ${errorMessage}` }, 500);
+    throw new AppError(
+      "operation_failed",
+      `Failed to add operation: ${errorMessage}`,
+      { cause: err },
+    );
   }
 });
 
@@ -377,24 +388,19 @@ interface RemoveOperationRequest {
  * Remove an allowed operation
  */
 app.delete("/operation", async (c) => {
-  let body: RemoveOperationRequest;
-  try {
-    body = await c.req.json<RemoveOperationRequest>();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
+  const body = await parseJsonBody<RemoveOperationRequest>(c);
 
   const { derivationPath, operationId, signature, message } = body;
 
   if (!derivationPath || !operationId || !signature || !message) {
-    return c.json({ error: "Missing required fields" }, 400);
+    throw new AppError("invalid_request", "Missing required fields");
   }
 
   try {
     // Get user's registered wallet to verify signature
     const permissions = await getPermissions(derivationPath);
     if (!permissions || permissions.owner_wallets.length === 0) {
-      return c.json({ error: "No registered wallet for derivation path" }, 404);
+      throw new AppError("not_found", "No registered wallet for derivation path");
     }
 
     const wallet = permissions.owner_wallets[0];
@@ -410,7 +416,7 @@ app.delete("/operation", async (c) => {
     );
 
     if (!isValid) {
-      return c.json({ error: "Invalid signature" }, 401);
+      throw new AppError("unauthorized", "Invalid signature");
     }
 
     // Call contract
@@ -424,9 +430,13 @@ app.delete("/operation", async (c) => {
     const txHash = await removeAllowedOperation(args);
     return c.json({ success: true, txHash, operationId });
   } catch (err) {
-    console.error("[permission] Error removing operation:", err);
+    if (err instanceof AppError) throw err;
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    return c.json({ error: `Failed to remove operation: ${errorMessage}` }, 500);
+    throw new AppError(
+      "operation_failed",
+      `Failed to remove operation: ${errorMessage}`,
+      { cause: err },
+    );
   }
 });
 
@@ -490,7 +500,7 @@ async function verifySignature(
   if (type === "evm" || type === "ethereum" || type === "eth" || type === "base" || type === "arbitrum") {
     // EVM signature verification - delegated to contract for now
     // The contract will verify using ecrecover
-    console.warn("[permission] EVM signature verification delegated to contract");
+    log.warn("EVM signature verification delegated to contract");
     return true; // Contract will verify
   }
 
