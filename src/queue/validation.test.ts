@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { IntentMessage, KaminoDepositMetadata, KaminoWithdrawMetadata } from "./types";
+import { IntentMessage, IntentMetadata, KaminoDepositMetadata, KaminoWithdrawMetadata } from "./types";
 
 // Mock flows must be hoisted for vi.mock to access them
 const { mockFlows } = vi.hoisted(() => {
@@ -317,7 +317,7 @@ describe("validateIntent", () => {
     it("accepts generic metadata without action field", () => {
       const validated = validate({
         ...baseIntent,
-        metadata: { customField: "value" },
+        metadata: { customField: "value" } as any as IntentMetadata,
       });
       expect(validated.metadata).toEqual({ customField: "value" });
     });

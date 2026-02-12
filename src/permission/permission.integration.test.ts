@@ -12,8 +12,8 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { Keypair } from "@solana/web3.js";
 import nacl from "tweetnacl";
+import bs58 from "bs58";
 import { connect, keyStores, KeyPair, Account } from "near-api-js";
 import { readFileSync } from "fs";
 import { homedir } from "os";
@@ -36,7 +36,10 @@ const NEAR_RPC = "https://rpc.testnet.near.org";
 let nearAccount: Account;
 
 // Test keypair - generate fresh for each test run
-let solanaKeypair: Keypair;
+// Using nacl directly for Ed25519 keypair generation
+let solanaKeypairSecret: Uint8Array;
+let solanaPublicKey: Uint8Array;
+let solanaPublicKeyBase58: string;
 let derivationPath: string;
 
 // Fallback RPC endpoints to handle rate limiting
@@ -163,11 +166,23 @@ async function nearCall(
 }
 
 /**
- * Sign a message with Solana keypair
+ * Generate a Solana-compatible Ed25519 keypair using nacl
  */
-function signWithSolana(message: string, keypair: Keypair): Uint8Array {
+function generateSolanaKeypair(): { secretKey: Uint8Array; publicKey: Uint8Array; publicKeyBase58: string } {
+  const kp = nacl.sign.keyPair();
+  return {
+    secretKey: kp.secretKey,
+    publicKey: kp.publicKey,
+    publicKeyBase58: bs58.encode(kp.publicKey),
+  };
+}
+
+/**
+ * Sign a message with Ed25519 keypair
+ */
+function signWithSolana(message: string, secretKey: Uint8Array): Uint8Array {
   const messageBytes = new TextEncoder().encode(message);
-  return nacl.sign.detached(messageBytes, keypair.secretKey);
+  return nacl.sign.detached(messageBytes, secretKey);
 }
 
 describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
@@ -176,12 +191,15 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
     nearAccount = await initNearAccount();
 
     // Generate fresh keypair for tests
-    solanaKeypair = Keypair.generate();
+    const kp = generateSolanaKeypair();
+    solanaKeypairSecret = kp.secretKey;
+    solanaPublicKey = kp.publicKey;
+    solanaPublicKeyBase58 = kp.publicKeyBase58;
     derivationPath = `test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     console.log("Test setup:");
     console.log("  Derivation path:", derivationPath);
-    console.log("  Solana pubkey:", solanaKeypair.publicKey.toBase58());
+    console.log("  Solana pubkey:", solanaPublicKeyBase58);
   });
 
   describe("View Methods", () => {
@@ -211,8 +229,8 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
       const message = createRegisterWalletMessage(
         derivationPath,
         "Solana",
-        solanaKeypair.publicKey.toBytes(),
-        solanaKeypair.publicKey.toBase58(),
+        solanaPublicKey,
+        solanaPublicKeyBase58,
         1,
       );
 
@@ -224,12 +242,12 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
       const message = createRegisterWalletMessage(
         derivationPath,
         "Solana",
-        solanaKeypair.publicKey.toBytes(),
-        solanaKeypair.publicKey.toBase58(),
+        solanaPublicKey,
+        solanaPublicKeyBase58,
         1,
       );
 
-      const signature = signWithSolana(message, solanaKeypair);
+      const signature = signWithSolana(message, solanaKeypairSecret);
       expect(signature.length).toBe(64); // Ed25519 signature is 64 bytes
 
       // Verify signature locally
@@ -237,7 +255,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
       const isValid = nacl.sign.detached.verify(
         messageBytes,
         signature,
-        solanaKeypair.publicKey.toBytes(),
+        solanaPublicKey,
       );
       expect(isValid).toBe(true);
     });
@@ -246,19 +264,19 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
       const message = createRegisterWalletMessage(
         derivationPath,
         "Solana",
-        solanaKeypair.publicKey.toBytes(),
-        solanaKeypair.publicKey.toBase58(),
+        solanaPublicKey,
+        solanaPublicKeyBase58,
         1,
       );
 
-      const signature = signWithSolana(message, solanaKeypair);
+      const signature = signWithSolana(message, solanaKeypairSecret);
       const messageBytes = new TextEncoder().encode(message);
 
       const result = await nearCall("register_wallet", {
         derivation_path: derivationPath,
         wallet_type: "Solana",
-        public_key: Array.from(solanaKeypair.publicKey.toBytes()),
-        chain_address: solanaKeypair.publicKey.toBase58(),
+        public_key: Array.from(solanaPublicKey),
+        chain_address: solanaPublicKeyBase58,
         signature: Array.from(signature),
         message: Array.from(messageBytes),
         nonce: 1,
@@ -283,14 +301,14 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
           target_asset: "SOL",
           max_amount: "100000000", // 100 USDC
         },
-        destination_address: solanaKeypair.publicKey.toBase58(),
+        destination_address: solanaPublicKeyBase58,
         destination_chain: "solana",
         slippage_bps: 100, // 1%
       };
 
       // Get current nonce (should be 2 after registration)
       const message = createAddOperationMessage(derivationPath, operation, 2);
-      const signature = signWithSolana(message, solanaKeypair);
+      const signature = signWithSolana(message, solanaKeypairSecret);
       const messageBytes = new TextEncoder().encode(message);
 
       const result = await nearCall("add_allowed_operation", {
@@ -298,7 +316,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
         operation,
         signature: Array.from(signature),
         message: Array.from(messageBytes),
-        signer_address: solanaKeypair.publicKey.toBase58(),
+        signer_address: solanaPublicKeyBase58,
       });
 
       expect(result.success).toBe(true);
@@ -364,7 +382,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
           target_asset: "SOL",
           max_amount: "50000000",
         },
-        destination_address: solanaKeypair.publicKey.toBase58(),
+        destination_address: solanaPublicKeyBase58,
         destination_chain: "solana",
         slippage_bps: 50,
       };
@@ -380,7 +398,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
         operation,
         signature: Array.from(invalidSignature),
         message: Array.from(messageBytes),
-        signer_address: solanaKeypair.publicKey.toBase58(),
+        signer_address: solanaPublicKeyBase58,
       });
 
       // Should fail due to invalid signature
@@ -389,7 +407,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
 
     it("should reject operation for unregistered wallet", async () => {
       // Generate a different keypair that isn't registered for this derivation path
-      const unregisteredKeypair = Keypair.generate();
+      const unregistered = generateSolanaKeypair();
 
       const operation: AllowedOperationInput = {
         operation_type: {
@@ -398,13 +416,13 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
           target_asset: "SOL",
           max_amount: "50000000",
         },
-        destination_address: unregisteredKeypair.publicKey.toBase58(),
+        destination_address: unregistered.publicKeyBase58,
         destination_chain: "solana",
         slippage_bps: 50,
       };
 
       const message = createAddOperationMessage(derivationPath, operation, 99);
-      const signature = signWithSolana(message, unregisteredKeypair);
+      const signature = signWithSolana(message, unregistered.secretKey);
       const messageBytes = new TextEncoder().encode(message);
 
       const result = await nearCall("add_allowed_operation", {
@@ -412,7 +430,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
         operation,
         signature: Array.from(signature),
         message: Array.from(messageBytes),
-        signer_address: unregisteredKeypair.publicKey.toBase58(),
+        signer_address: unregistered.publicKeyBase58,
       });
 
       // Should fail because the signer is not authorized for this derivation path
@@ -435,7 +453,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
 
         // Create remove message with next nonce
         const message = createRemoveOperationMessage(derivationPath, opId, 4);
-        const signature = signWithSolana(message, solanaKeypair);
+        const signature = signWithSolana(message, solanaKeypairSecret);
         const messageBytes = new TextEncoder().encode(message);
 
         const result = await nearCall("remove_allowed_operation", {
@@ -443,7 +461,7 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
           operation_id: opId,
           signature: Array.from(signature),
           message: Array.from(messageBytes),
-          signer_address: solanaKeypair.publicKey.toBase58(),
+          signer_address: solanaPublicKeyBase58,
         });
 
         console.log("Remove result:", result);
@@ -471,7 +489,9 @@ describe.skipIf(!shouldRun)("Permission Contract Integration", () => {
 
 describe.skipIf(!shouldRun)("MPC Signing Flow", () => {
   let testDerivationPath: string;
-  let testKeypair: Keypair;
+  let testSecretKey: Uint8Array;
+  let testPublicKey: Uint8Array;
+  let testPublicKeyBase58: string;
   let testOperationId: string;
 
   beforeAll(async () => {
@@ -479,7 +499,10 @@ describe.skipIf(!shouldRun)("MPC Signing Flow", () => {
     if (!nearAccount) {
       nearAccount = await initNearAccount();
     }
-    testKeypair = Keypair.generate();
+    const kp = generateSolanaKeypair();
+    testSecretKey = kp.secretKey;
+    testPublicKey = kp.publicKey;
+    testPublicKeyBase58 = kp.publicKeyBase58;
     testDerivationPath = `mpc-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   });
 
@@ -487,19 +510,19 @@ describe.skipIf(!shouldRun)("MPC Signing Flow", () => {
     const message = createRegisterWalletMessage(
       testDerivationPath,
       "Solana",
-      testKeypair.publicKey.toBytes(),
-      testKeypair.publicKey.toBase58(),
+      testPublicKey,
+      testPublicKeyBase58,
       1,
     );
 
-    const signature = signWithSolana(message, testKeypair);
+    const signature = signWithSolana(message, testSecretKey);
     const messageBytes = new TextEncoder().encode(message);
 
     const result = await nearCall("register_wallet", {
       derivation_path: testDerivationPath,
       wallet_type: "Solana",
-      public_key: Array.from(testKeypair.publicKey.toBytes()),
-      chain_address: testKeypair.publicKey.toBase58(),
+      public_key: Array.from(testPublicKey),
+      chain_address: testPublicKeyBase58,
       signature: Array.from(signature),
       message: Array.from(messageBytes),
       nonce: 1,
@@ -517,13 +540,13 @@ describe.skipIf(!shouldRun)("MPC Signing Flow", () => {
         target_asset: "SOL",
         max_amount: "1000000", // 1 USDC
       },
-      destination_address: testKeypair.publicKey.toBase58(),
+      destination_address: testPublicKeyBase58,
       destination_chain: "solana",
       slippage_bps: 100,
     };
 
     const message = createAddOperationMessage(testDerivationPath, operation, 2);
-    const signature = signWithSolana(message, testKeypair);
+    const signature = signWithSolana(message, testSecretKey);
     const messageBytes = new TextEncoder().encode(message);
 
     const result = await nearCall("add_allowed_operation", {
@@ -531,7 +554,7 @@ describe.skipIf(!shouldRun)("MPC Signing Flow", () => {
       operation,
       signature: Array.from(signature),
       message: Array.from(messageBytes),
-      signer_address: testKeypair.publicKey.toBase58(),
+      signer_address: testPublicKeyBase58,
     });
 
     console.log("MPC test - operation added:", result.success);
@@ -611,50 +634,50 @@ describe.skipIf(!shouldRun)("MPC Signing Flow", () => {
 
 describe.skipIf(!shouldRun)("Signature Verification", () => {
   it("should verify Solana Ed25519 signature", () => {
-    const keypair = Keypair.generate();
+    const kp = nacl.sign.keyPair();
     const message = "test message for signing";
     const messageBytes = new TextEncoder().encode(message);
 
-    const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
+    const signature = nacl.sign.detached(messageBytes, kp.secretKey);
 
     const isValid = nacl.sign.detached.verify(
       messageBytes,
       signature,
-      keypair.publicKey.toBytes(),
+      kp.publicKey,
     );
 
     expect(isValid).toBe(true);
   });
 
   it("should fail for tampered message", () => {
-    const keypair = Keypair.generate();
+    const kp = nacl.sign.keyPair();
     const message = "original message";
     const messageBytes = new TextEncoder().encode(message);
 
-    const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
+    const signature = nacl.sign.detached(messageBytes, kp.secretKey);
 
     const tamperedMessage = new TextEncoder().encode("tampered message");
     const isValid = nacl.sign.detached.verify(
       tamperedMessage,
       signature,
-      keypair.publicKey.toBytes(),
+      kp.publicKey,
     );
 
     expect(isValid).toBe(false);
   });
 
   it("should fail for wrong public key", () => {
-    const keypair1 = Keypair.generate();
-    const keypair2 = Keypair.generate();
+    const kp1 = nacl.sign.keyPair();
+    const kp2 = nacl.sign.keyPair();
     const message = "test message";
     const messageBytes = new TextEncoder().encode(message);
 
-    const signature = nacl.sign.detached(messageBytes, keypair1.secretKey);
+    const signature = nacl.sign.detached(messageBytes, kp1.secretKey);
 
     const isValid = nacl.sign.detached.verify(
       messageBytes,
       signature,
-      keypair2.publicKey.toBytes(),
+      kp2.publicKey,
     );
 
     expect(isValid).toBe(false);

@@ -1,19 +1,18 @@
+import { address, type IInstruction } from "@solana/kit";
 import {
-  PublicKey,
-  TransactionMessage,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import {
-  createTransferInstruction,
-  getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
+  findAssociatedTokenPda,
+  getTransferInstruction,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import { OrderExecuteMetadata, ValidatedIntent } from "../queue/types";
 import {
   deriveAgentPublicKey,
   SOLANA_DEFAULT_PATH,
-  getSolanaConnection,
+  getSolanaRpc,
   signAndBroadcastSingleSigner,
+  buildAndCompileTransaction,
 } from "../utils/solana";
+import { createDummySigner } from "../utils/chainSignature";
 import {
   deriveNearAgentAccount,
   ensureNearAccountFunded,
@@ -32,62 +31,8 @@ import {
   getOrderDescription,
 } from "../state/orders";
 import type { FlowDefinition, FlowContext, FlowResult } from "./types";
-// Permission contract temporarily disabled
-// import { signAllowed, isOperationAllowed } from "../permission";
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
-
-// Permission contract temporarily disabled
-// /**
-//  * Sign transaction via permission contract if available, otherwise direct MPC
-//  * This is the key integration point for self-custodial operations
-//  */
-// async function signOrderTransaction(
-//   order: Order,
-//   payload: Uint8Array,
-//   teePrice: string,
-//   ctx: FlowContext,
-// ): Promise<Uint8Array> {
-//   const { logger } = ctx;
-//
-//   // If order has permission contract registration, use it
-//   if (order.permissionOperationId && order.permissionDerivationPath) {
-//     logger.info(`Using permission contract for signing (operation: ${order.permissionOperationId})`);
-//
-//     // Verify operation is still allowed
-//     const allowed = await isOperationAllowed(
-//       order.permissionDerivationPath,
-//       order.permissionOperationId,
-//     );
-//
-//     if (!allowed) {
-//       throw new Error(`Operation ${order.permissionOperationId} is no longer allowed`);
-//     }
-//
-//     // Sign via permission contract (which validates and forwards to MPC)
-//     const signature = await signAllowed({
-//       derivation_path: order.permissionDerivationPath,
-//       operation_id: order.permissionOperationId,
-//       payload: Array.from(payload),
-//       key_type: order.agentChain === "solana" ? "Eddsa" : "Ecdsa",
-//       tee_price: teePrice,
-//       tee_timestamp: Date.now(),
-//     });
-//
-//     logger.info(`Received signature via permission contract (${signature.length} bytes)`);
-//     return signature;
-//   }
-//
-//   // Fallback to direct MPC signing (less secure, for backward compatibility)
-//   logger.warn("Using direct MPC signing (no permission contract registration)");
-//
-//   // This uses the existing signAndBroadcastSingleSigner which calls MPC directly
-//   // For full self-custody, this path should be deprecated
-//   throw new Error(
-//     "Direct MPC signing not supported for orders without permission registration. " +
-//     "Please create the order with a user signature."
-//   );
-// }
 
 /**
  * Execute Solana transfer to intents for cross-chain swap
@@ -100,45 +45,50 @@ async function executeSolanaOrderSwap(
   const { logger, config } = ctx;
 
   const derivationSuffix = `order-${order.orderId}`;
-  const agentPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
+  const agentAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
 
-  logger.info(`Executing order from custody: ${agentPublicKey.toBase58()}`);
+  logger.info(`Executing order from custody: ${agentAddress}`);
   logger.info(`To intents deposit: ${depositAddress}`);
   logger.info(`Amount: ${order.amount}`);
 
-  const connection = getSolanaConnection();
+  const rpc = getSolanaRpc();
 
   // Build transfer for SPL tokens
-  const mintAddress = new PublicKey(order.sourceAsset);
-  const sourceAta = getAssociatedTokenAddressSync(mintAddress, agentPublicKey);
-  const depositPubkey = new PublicKey(depositAddress);
-  // SPL transfers must target a token account, not a raw wallet address
-  const destinationAta = getAssociatedTokenAddressSync(mintAddress, depositPubkey);
+  const mintAddr = address(order.sourceAsset);
+  const depositAddr = address(depositAddress);
 
-  const instructions = [
-    createTransferInstruction(
-      sourceAta,
-      destinationAta,
-      agentPublicKey,
-      BigInt(order.amount),
-    ),
+  const [sourceAta] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: agentAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
+  const [destinationAta] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: depositAddr,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
+
+  const instructions: IInstruction[] = [
+    getTransferInstruction({
+      source: sourceAta,
+      destination: destinationAta,
+      authority: createDummySigner(agentAddress),
+      amount: BigInt(order.amount),
+    }) as IInstruction,
   ];
 
-  const { blockhash } = await connection.getLatestBlockhash();
-  const messageV0 = new TransactionMessage({
-    payerKey: agentPublicKey,
-    recentBlockhash: blockhash,
+  const compiledTx = await buildAndCompileTransaction({
     instructions,
-  }).compileToV0Message();
-
-  const transaction = new VersionedTransaction(messageV0);
+    feePayer: agentAddress,
+    rpc,
+  });
 
   if (config.dryRunSwaps) {
     logger.info("DRY RUN - Would execute order swap");
     return `dry-run-order-${order.orderId}-${Date.now()}`;
   }
 
-  const txId = await signAndBroadcastSingleSigner(transaction, derivationSuffix);
+  const txId = await signAndBroadcastSingleSigner(compiledTx, derivationSuffix);
   logger.info(`Solana order execution confirmed: ${txId}`);
 
   return txId;
@@ -297,7 +247,7 @@ const orderExecuteFlow: FlowDefinition<OrderExecuteMetadata> = {
       }
 
       // Extract output amount from quote if available
-      const outputAmount = (quoteResponse as any)?.destinationAmount;
+      const outputAmount = (quoteResponse as Record<string, unknown>)?.destinationAmount as string | undefined;
 
       // Mark as executed. If persistence fails after broadcast, return tx to avoid duplicate sends.
       try {

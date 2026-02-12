@@ -96,4 +96,24 @@ describe("transaction route", () => {
     const body = await res.json();
     expect(body.error).toMatch(/fetch ETH price/i);
   });
+
+  it("fails when contract id is missing", async () => {
+    delete process.env.NEXT_PUBLIC_contractId;
+    const res = await app.request("/api/transaction", { method: "POST" });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/Contract ID/);
+  });
+
+  it("fails when signing fails", async () => {
+    mocks.requestSignatureMock.mockRejectedValue(new Error("signing error"));
+    const res = await app.request("/api/transaction", { method: "POST" });
+    expect(res.status).toBe(500);
+  });
+
+  it("fails when broadcast fails", async () => {
+    mocks.broadcastTxMock.mockRejectedValue(new Error("broadcast error"));
+    const res = await app.request("/api/transaction", { method: "POST" });
+    expect(res.status).toBe(500);
+  });
 });

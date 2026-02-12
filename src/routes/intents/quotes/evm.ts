@@ -1,4 +1,3 @@
-import type { Context } from "hono";
 import { IntentChain } from "../../../queue/types";
 import { config } from "../../../config";
 import { fetchWithRetry } from "../../../utils/http";
@@ -10,31 +9,24 @@ import {
   EvmChainName,
 } from "../../../utils/evmChains";
 import { flowCatalog } from "../../../queue/flowCatalog";
-import type { QuoteRequestBody, IntentsQuoteResponse } from "../types";
 import {
   buildAutoEnqueueIntent,
-  fetchDefuseQuote,
-  extractQuoteAmount,
+  fetchAndExtractQuote,
   generateQuoteId,
   tryAutoEnqueue,
   buildQuoteResponse,
+  type QuoteContext,
 } from "../helpers";
 import { createLogger } from "../../../utils/logger";
 import { getIntentsApiBase } from "../../../infra/intentsApi";
-import { AppError } from "../../../errors/appError";
 
 const log = createLogger("intents/quotes/evm");
 
 export async function handleEvmSwapQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  defuseQuoteFields: Record<string, unknown>,
-  isDryRun: boolean,
+  ctx: QuoteContext,
   evmChain: EvmChainName,
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
 ) {
+  const { c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata } = ctx;
   const chainConfig = EVM_CHAIN_CONFIGS[evmChain];
 
   let agentEvmAddress: string | undefined;
@@ -65,20 +57,10 @@ export async function handleEvmSwapQuote(
     agentRecipient: agentEvmAddress,
   });
 
-  let intentsQuote: IntentsQuoteResponse;
-  try {
-    intentsQuote = await fetchDefuseQuote(bridgeQuoteRequest);
-  } catch (err) {
-    log.error("EVM swap: bridge quote failed", { err: String(err) });
-    throw new AppError("upstream_error", (err as Error).message, { cause: err });
-  }
-
-  const baseQuote = intentsQuote.quote || {};
-  const amountResult = extractQuoteAmount(baseQuote);
-  if ("error" in amountResult) {
-    throw new AppError("upstream_error", amountResult.error);
-  }
-  const bridgeAmount = amountResult.amount;
+  const { intentsQuote, baseQuote, amountOut: bridgeAmount } = await fetchAndExtractQuote(
+    bridgeQuoteRequest,
+    "EVM swap",
+  );
 
   const buyToken = extractEvmTokenAddress(payload.destinationAsset);
   const needsSwap = !isNativeEvmToken(buyToken);

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { chainAdapters } from "chainsig.js";
 import { createPublicClient, http } from "viem";
 import { config } from "../config";
@@ -45,4 +44,14 @@ const publicClient = createPublicClient({
 export const Evm = new chainAdapters.evm.EVM({
   publicClient,
   contract: chainSignatureContract,
-}) as any;
+}) as unknown as EvmAdapter;
+export interface EvmAdapter {
+  deriveAddressAndPublicKey: (accountId: string, path: string) => Promise<{ address: string; publicKey?: string }>;
+  getBalance: (address: string) => Promise<{ balance: string | bigint }>;
+  prepareTransactionForSigning: (request: Record<string, unknown>) => Promise<{
+    transaction: unknown;
+    hashesToSign: Uint8Array[];
+  }>;
+  finalizeTransactionSigning: (params: { transaction: unknown; rsvSignatures: unknown[] }) => unknown;
+  broadcastTx: (signedTransaction: unknown) => Promise<{ hash: string }>;
+}

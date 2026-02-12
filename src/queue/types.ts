@@ -1,6 +1,7 @@
 export type IntentChain = "near" | "solana" | "zcash" | "ethereum" | "arbitrum" | "base" | "optimism" | "aurora" | "polygon" | "bnb" | "avalanche";
 
-export interface KaminoDepositMetadata extends Record<string, unknown> {
+export interface KaminoDepositMetadata {
+  [key: string]: unknown;
   action: "kamino-deposit";
   marketAddress: string;
   /** The raw Solana mint address of the underlying asset */
@@ -13,7 +14,8 @@ export interface KaminoDepositMetadata extends Record<string, unknown> {
   slippageTolerance?: number;
 }
 
-export interface KaminoWithdrawMetadata extends Record<string, unknown> {
+export interface KaminoWithdrawMetadata {
+  [key: string]: unknown;
   action: "kamino-withdraw";
   marketAddress: string;
   mintAddress: string;
@@ -30,7 +32,8 @@ export interface KaminoWithdrawMetadata extends Record<string, unknown> {
   };
 }
 
-export interface BurrowDepositMetadata extends Record<string, unknown> {
+export interface BurrowDepositMetadata {
+  [key: string]: unknown;
   action: "burrow-deposit";
   /** The NEAR token contract address (e.g., "wrap.near", "usdc.token.near") */
   tokenId: string;
@@ -44,7 +47,8 @@ export interface BurrowDepositMetadata extends Record<string, unknown> {
   slippageTolerance?: number;
 }
 
-export interface BurrowWithdrawMetadata extends Record<string, unknown> {
+export interface BurrowWithdrawMetadata {
+  [key: string]: unknown;
   action: "burrow-withdraw";
   /** The NEAR token contract address (e.g., "wrap.near", "usdc.token.near") */
   tokenId: string;
@@ -61,7 +65,8 @@ export interface BurrowWithdrawMetadata extends Record<string, unknown> {
   };
 }
 
-export interface NearSwapMetadata extends Record<string, unknown> {
+export interface NearSwapMetadata {
+  [key: string]: unknown;
   action: "near-swap";
   /** Input token contract address (e.g., "wrap.near", "usdc.token.near") */
   tokenIn: string;
@@ -69,15 +74,23 @@ export interface NearSwapMetadata extends Record<string, unknown> {
   tokenOut: string;
 }
 
-export interface EvmSwapMetadata extends Record<string, unknown> {
+export interface SolSwapMetadata {
+  [key: string]: unknown;
+  action: "sol-swap";
+}
+
+export interface EvmSwapMetadata {
+  [key: string]: unknown;
   action: "evm-swap";
 }
 
-export interface AaveDepositMetadata extends Record<string, unknown> {
+export interface AaveDepositMetadata {
+  [key: string]: unknown;
   action: "aave-deposit";
 }
 
-export interface AaveWithdrawMetadata extends Record<string, unknown> {
+export interface AaveWithdrawMetadata {
+  [key: string]: unknown;
   action: "aave-withdraw";
   /** EVM token address of the underlying asset to withdraw */
   underlyingAsset: string;
@@ -90,7 +103,8 @@ export interface AaveWithdrawMetadata extends Record<string, unknown> {
   };
 }
 
-export interface MorphoDepositMetadata extends Record<string, unknown> {
+export interface MorphoDepositMetadata {
+  [key: string]: unknown;
   action: "morpho-deposit";
   /** bytes32 market identifier */
   marketId: string;
@@ -102,7 +116,8 @@ export interface MorphoDepositMetadata extends Record<string, unknown> {
   lltv: string;
 }
 
-export interface MorphoWithdrawMetadata extends Record<string, unknown> {
+export interface MorphoWithdrawMetadata {
+  [key: string]: unknown;
   action: "morpho-withdraw";
   /** bytes32 market identifier */
   marketId: string;
@@ -127,7 +142,8 @@ export type OrderType = "limit" | "stop-loss" | "take-profit";
 export type OrderSide = "buy" | "sell";
 export type PriceCondition = "above" | "below";
 
-export interface OrderCreateMetadata extends Record<string, unknown> {
+export interface OrderCreateMetadata {
+  [key: string]: unknown;
   action: "order-create";
   /** Unique order identifier */
   orderId: string;
@@ -159,7 +175,8 @@ export interface OrderCreateMetadata extends Record<string, unknown> {
   slippageTolerance?: number;
 }
 
-export interface OrderExecuteMetadata extends Record<string, unknown> {
+export interface OrderExecuteMetadata {
+  [key: string]: unknown;
   action: "order-execute";
   /** The order ID to execute */
   orderId: string;
@@ -167,7 +184,8 @@ export interface OrderExecuteMetadata extends Record<string, unknown> {
   triggeredPrice: string;
 }
 
-export interface OrderCancelMetadata extends Record<string, unknown> {
+export interface OrderCancelMetadata {
+  [key: string]: unknown;
   action: "order-cancel";
   /** The order ID to cancel */
   orderId: string;
@@ -175,7 +193,8 @@ export interface OrderCancelMetadata extends Record<string, unknown> {
   refundFunds?: boolean;
 }
 
-export interface SolBridgeOutMetadata extends Record<string, unknown> {
+export interface SolBridgeOutMetadata {
+  [key: string]: unknown;
   action: "sol-bridge-out";
   /** User's Solana wallet (Jupiter TX signer) */
   userSourceAddress: string;
@@ -193,7 +212,8 @@ export interface SolBridgeOutMetadata extends Record<string, unknown> {
   slippageTolerance?: number;
 }
 
-export interface NearBridgeOutMetadata extends Record<string, unknown> {
+export interface NearBridgeOutMetadata {
+  [key: string]: unknown;
   action: "near-bridge-out";
   /** User's NEAR wallet address */
   userNearAddress: string;
@@ -227,6 +247,7 @@ export type IntentMetadata =
   | (BurrowDepositMetadata & IntentMetadataFlags)
   | (BurrowWithdrawMetadata & IntentMetadataFlags)
   | (NearSwapMetadata & IntentMetadataFlags)
+  | (SolSwapMetadata & IntentMetadataFlags)
   | (EvmSwapMetadata & IntentMetadataFlags)
   | (AaveDepositMetadata & IntentMetadataFlags)
   | (AaveWithdrawMetadata & IntentMetadataFlags)
@@ -236,8 +257,7 @@ export type IntentMetadata =
   | (NearBridgeOutMetadata & IntentMetadataFlags)
   | (OrderCreateMetadata & IntentMetadataFlags)
   | (OrderExecuteMetadata & IntentMetadataFlags)
-  | (OrderCancelMetadata & IntentMetadataFlags)
-  | (Record<string, unknown> & IntentMetadataFlags);
+  | (OrderCancelMetadata & IntentMetadataFlags);
 
 export interface IntentMessage {
   intentId: string;

@@ -1,13 +1,3 @@
-import {
-  init_env,
-  ftGetTokenMetadata,
-  fetchAllPools,
-  estimateSwap,
-  instantSwap,
-  Transaction as RefTransaction,
-  Pool,
-} from "@ref-finance/ref-sdk";
-import { isTestnet } from "../config";
 import { NearBridgeOutMetadata, ValidatedIntent } from "../queue/types";
 import { WRAP_NEAR_CONTRACT } from "../constants";
 import {
@@ -17,101 +7,19 @@ import {
   NEAR_DEFAULT_PATH,
   GAS_FOR_FT_TRANSFER_CALL,
   ONE_YOCTO,
-  getNearProvider,
 } from "../utils/near";
+import { getFtBalance as getFtBalanceStr } from "../utils/nearRpc";
+import { buildRefSwapTransactions, DEFAULT_REF_GAS } from "../utils/refFinance";
 import { getDefuseAssetId } from "../utils/tokenMappings";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import { logNearAddressInfo } from "./context";
-import { createLogger } from "../utils/logger";
+import { logNearAddressInfo, dryRunResult } from "./context";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
-
-const log = createLogger("nearBridgeOut");
-
-// Initialize ref-sdk environment
-init_env(isTestnet ? "testnet" : "mainnet");
-
-// Default gas for ref-finance operations (300 TGas)
-const DEFAULT_REF_GAS = BigInt("300000000000000");
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
 
-/**
- * Build Ref Finance swap transactions: token → wNEAR.
- */
-async function buildSwapToWnearTransactions(
-  tokenId: string,
-  amount: string,
-  slippageBps: number,
-  accountId: string,
-  logger: Logger,
-): Promise<RefTransaction[]> {
-  const slippageTolerance = (slippageBps || 100) / 10000;
-
-  logger.debug(`Building swap to wNEAR`, {
-    tokenId,
-    amount,
-    slippageTolerance,
-    accountId,
-  });
-
-  const [tokenIn, tokenOut] = await Promise.all([
-    ftGetTokenMetadata(tokenId),
-    ftGetTokenMetadata(WRAP_NEAR_CONTRACT),
-  ]);
-
-  logger.debug(`Token metadata loaded`, {
-    tokenIn: { id: tokenIn.id, symbol: tokenIn.symbol, decimals: tokenIn.decimals },
-    tokenOut: { id: tokenOut.id, symbol: tokenOut.symbol, decimals: tokenOut.decimals },
-  });
-
-  const { simplePools, stablePools, stablePoolsDetail } = await fetchAllPools();
-
-  const swapTodos = await estimateSwap({
-    tokenIn,
-    tokenOut,
-    amountIn: amount,
-    simplePools: simplePools as Pool[],
-    options: {
-      enableSmartRouting: true,
-      stablePools: stablePools as Pool[],
-      stablePoolsDetail,
-    },
-  });
-
-  if (!swapTodos || swapTodos.length === 0) {
-    throw new Error(`No swap route found for ${tokenId} -> ${WRAP_NEAR_CONTRACT}`);
-  }
-
-  logger.debug(`Swap route found with ${swapTodos.length} steps`);
-
-  const transactions = await instantSwap({
-    tokenIn,
-    tokenOut,
-    amountIn: amount,
-    slippageTolerance,
-    swapTodos,
-    AccountId: accountId,
-  });
-
-  return transactions;
-}
-
 async function getFtBalance(tokenId: string, accountId: string): Promise<bigint> {
-  const provider = getNearProvider();
-  try {
-    const result = await provider.query({
-      request_type: "call_function",
-      finality: "final",
-      account_id: tokenId,
-      method_name: "ft_balance_of",
-      args_base64: Buffer.from(JSON.stringify({ account_id: accountId })).toString("base64"),
-    });
-    const balance = JSON.parse(Buffer.from((result as unknown as { result: number[] }).result).toString());
-    return BigInt(balance || "0");
-  } catch (err) {
-    log.warn(`Failed to get ft_balance_of ${tokenId} for ${accountId}`, { err: String(err) });
-    return 0n;
-  }
+  const balance = await getFtBalanceStr(tokenId, accountId);
+  return BigInt(balance);
 }
 
 // ─── Flow Definition ───────────────────────────────────────────────────────────
@@ -151,13 +59,8 @@ const nearBridgeOutFlow: FlowDefinition<NearBridgeOutMetadata> = {
     // Ensure the implicit account exists
     await ensureNearAccountFunded(userAgent.accountId);
 
-    if (config.dryRunSwaps) {
-      return {
-        txId: `dry-run-near-bridge-out-${intent.intentId}`,
-        bridgeTxId: `dry-run-bridge-${intent.intentId}`,
-        intentsDepositAddress: "dry-run-deposit-address",
-      };
-    }
+    const dry = dryRunResult("near-bridge-out", intent.intentId, config, { bridgeBack: true });
+    if (dry) return dry;
 
     const txIds: string[] = [];
     const tokenId = meta.tokenId;
@@ -169,13 +72,14 @@ const nearBridgeOutFlow: FlowDefinition<NearBridgeOutMetadata> = {
       preWnearBalance = await getFtBalance(WRAP_NEAR_CONTRACT, userAgent.accountId);
       logger.info(`Swapping ${tokenId} → wNEAR via Ref Finance`);
 
-      const transactions = await buildSwapToWnearTransactions(
-        tokenId,
-        intent.sourceAmount,
-        intent.slippageBps,
-        userAgent.accountId,
+      const transactions = await buildRefSwapTransactions({
+        inputToken: tokenId,
+        outputToken: WRAP_NEAR_CONTRACT,
+        amount: intent.sourceAmount,
+        slippageBps: intent.slippageBps,
+        accountId: userAgent.accountId,
         logger,
-      );
+      });
 
       logger.info(`Got ${transactions.length} transactions from Ref SDK`);
 

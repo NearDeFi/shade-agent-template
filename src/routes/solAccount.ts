@@ -15,15 +15,13 @@ app.onError((err, c) => handleRouteError(c, err, log));
 app.get("/", async (c) => {
   try {
     const path = c.req.query("path") || SOLANA_DEFAULT_PATH;
-    const pubkey = await deriveAgentPublicKey(path);
-    const { balance, decimals } = await SolanaAdapter.getBalance(
-      pubkey.toBase58(),
-    );
+    const agentAddress = await deriveAgentPublicKey(path);
+    const { balance, decimals } = await SolanaAdapter.getBalance(agentAddress);
     const balanceLamports = balance.toString();
     const balanceSol = Number(balance) / 10 ** decimals;
 
     return c.json({
-      address: pubkey.toBase58(),
+      address: agentAddress,
       path,
       balanceLamports,
       balanceSol,

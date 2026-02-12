@@ -4,10 +4,19 @@ import intentsApp from "./intents";
 import { config } from "../config";
 import { OpenAPI } from "@defuse-protocol/one-click-sdk-typescript";
 
-const { enqueueIntentMock, setStatusMock } = vi.hoisted(() => ({
-  enqueueIntentMock: vi.fn(),
-  setStatusMock: vi.fn(),
-}));
+const { enqueueIntentMock, setStatusMock, enqueueIntentWithStatusMock } = vi.hoisted(() => {
+  const enqueueIntentMock = vi.fn();
+  const setStatusMock = vi.fn();
+  const enqueueIntentWithStatusMock = vi.fn(async (intent: { intentId: string }, status: unknown) => {
+    await enqueueIntentMock(intent);
+    await setStatusMock(intent.intentId, status);
+  });
+  return {
+    enqueueIntentMock,
+    setStatusMock,
+    enqueueIntentWithStatusMock,
+  };
+});
 
 const {
   isNearSignatureMock,
@@ -25,6 +34,15 @@ const {
 
 const { getQuoteMock } = vi.hoisted(() => ({
   getQuoteMock: vi.fn(),
+}));
+
+// Prevent @ref-finance/ref-sdk from requiring 'react' at import time
+vi.mock("@ref-finance/ref-sdk", () => ({
+  init_env: vi.fn(),
+  ftGetTokenMetadata: vi.fn(),
+  fetchAllPools: vi.fn(),
+  estimateSwap: vi.fn(),
+  instantSwap: vi.fn(),
 }));
 
 vi.mock("../utils/nearSignature", () => ({
@@ -46,6 +64,7 @@ vi.mock("../queue/redis", () => ({
 
 vi.mock("../state/status", () => ({
   setStatus: setStatusMock,
+  enqueueIntentWithStatus: enqueueIntentWithStatusMock,
 }));
 
 vi.mock("@defuse-protocol/one-click-sdk-typescript", () => ({
@@ -77,6 +96,11 @@ describe("intents route", () => {
   beforeEach(() => {
     enqueueIntentMock.mockReset();
     setStatusMock.mockReset();
+    enqueueIntentWithStatusMock.mockReset();
+    enqueueIntentWithStatusMock.mockImplementation(async (intent: { intentId: string }, status: unknown) => {
+      await enqueueIntentMock(intent);
+      await setStatusMock(intent.intentId, status);
+    });
     config.enableQueue = true;
     isNearSignatureMock.mockReset();
     createIntentSigningMessageMock.mockReset();

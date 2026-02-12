@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import statusApp from "./status";
 
-const { getStatusMock } = vi.hoisted(() => ({
+const { getStatusMock, listStatusesMock } = vi.hoisted(() => ({
   getStatusMock: vi.fn(),
+  listStatusesMock: vi.fn(),
 }));
 
 vi.mock("../state/status", () => ({
   getStatus: getStatusMock,
+  listStatuses: listStatusesMock,
 }));
 
 const app = new Hono().route("/api/status", statusApp);
@@ -31,5 +33,45 @@ describe("status route", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.status).toBe("unknown");
+  });
+
+  describe("GET / (listStatuses)", () => {
+    it("returns intents with default limit", async () => {
+      listStatusesMock.mockResolvedValue([
+        { intentId: "a", state: "succeeded" },
+        { intentId: "b", state: "processing" },
+      ]);
+
+      const res = await app.request("/api/status");
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.intents).toHaveLength(2);
+      expect(listStatusesMock).toHaveBeenCalledWith(50);
+    });
+
+    it("accepts custom limit parameter", async () => {
+      listStatusesMock.mockResolvedValue([]);
+
+      const res = await app.request("/api/status?limit=10");
+      expect(res.status).toBe(200);
+      expect(listStatusesMock).toHaveBeenCalledWith(10);
+    });
+
+    it("caps limit at 500", async () => {
+      listStatusesMock.mockResolvedValue([]);
+
+      const res = await app.request("/api/status?limit=9999");
+      expect(res.status).toBe(200);
+      expect(listStatusesMock).toHaveBeenCalledWith(500);
+    });
+
+    it("returns empty array when no intents", async () => {
+      listStatusesMock.mockResolvedValue([]);
+
+      const res = await app.request("/api/status");
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.intents).toEqual([]);
+    });
   });
 });

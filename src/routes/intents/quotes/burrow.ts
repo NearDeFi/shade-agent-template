@@ -1,19 +1,16 @@
-import type { Context } from "hono";
-import { IntentChain } from "../../../queue/types";
 import { config } from "../../../config";
 import { getDefuseAssetId } from "../../../utils/tokenMappings";
 import { deriveNearImplicitAccount, NEAR_DEFAULT_PATH } from "../../../utils/chainSignature";
 import { ensureImplicitAccountExists } from "../../../utils/nearMetaTx";
 import { getNearProvider } from "../../../utils/near";
 import { flowCatalog } from "../../../queue/flowCatalog";
-import type { QuoteRequestBody, IntentsQuoteResponse } from "../types";
 import {
   buildAutoEnqueueIntent,
-  fetchDefuseQuote,
-  extractQuoteAmount,
+  fetchAndExtractQuote,
   generateQuoteId,
   tryAutoEnqueue,
   buildQuoteResponse,
+  type QuoteContext,
 } from "../helpers";
 import { createLogger } from "../../../utils/logger";
 import { getIntentsApiBase } from "../../../infra/intentsApi";
@@ -22,15 +19,10 @@ import { AppError } from "../../../errors/appError";
 const log = createLogger("intents/quotes/burrow");
 
 export async function handleBurrowDepositQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  defuseQuoteFields: Record<string, unknown>,
-  isDryRun: boolean,
+  ctx: QuoteContext,
   burrowDeposit: { tokenId: string; isCollateral?: boolean },
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
 ) {
+  const { c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata } = ctx;
   let agentNearAddress: string | undefined;
   let agentPublicKey: string | undefined;
   if (userDestination) {
@@ -68,20 +60,10 @@ export async function handleBurrowDepositQuote(
     isCollateral: burrowDeposit.isCollateral,
   });
 
-  let intentsQuote: IntentsQuoteResponse;
-  try {
-    intentsQuote = await fetchDefuseQuote(directQuoteRequest);
-  } catch (err) {
-    log.error("Burrow deposit: intents quote failed", { err: String(err) });
-    throw new AppError("upstream_error", (err as Error).message, { cause: err });
-  }
-
-  const baseQuote = intentsQuote.quote || {};
-  const amountResult = extractQuoteAmount(baseQuote);
-  if ("error" in amountResult) {
-    throw new AppError("upstream_error", amountResult.error);
-  }
-  const amountOut = amountResult.amount;
+  const { intentsQuote, baseQuote, amountOut } = await fetchAndExtractQuote(
+    directQuoteRequest,
+    "Burrow deposit",
+  );
 
   const quoteId = generateQuoteId(baseQuote, "shade-burrow");
 
@@ -124,15 +106,10 @@ export async function handleBurrowDepositQuote(
 }
 
 export async function handleBurrowWithdrawQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  defuseQuoteFields: Record<string, unknown>,
-  isDryRun: boolean,
+  ctx: QuoteContext,
   burrowWithdraw: { tokenId: string; bridgeBack?: { destinationChain: string; destinationAddress: string; destinationAsset: string; slippageTolerance?: number } },
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
 ) {
+  const { c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata } = ctx;
   if (!burrowWithdraw.bridgeBack) {
     const quoteId = `shade-burrow-withdraw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -173,20 +150,10 @@ export async function handleBurrowWithdrawQuote(
     burrowTokenId: burrowWithdraw.tokenId,
   });
 
-  let intentsQuote: IntentsQuoteResponse;
-  try {
-    intentsQuote = await fetchDefuseQuote(bridgeQuoteRequest);
-  } catch (err) {
-    log.error("Burrow withdraw bridgeBack: intents quote failed", { err: String(err) });
-    throw new AppError("upstream_error", (err as Error).message, { cause: err });
-  }
-
-  const baseQuote = intentsQuote.quote || {};
-  const amountResult = extractQuoteAmount(baseQuote);
-  if ("error" in amountResult) {
-    throw new AppError("upstream_error", amountResult.error);
-  }
-  const amountOut = amountResult.amount;
+  const { intentsQuote, baseQuote, amountOut } = await fetchAndExtractQuote(
+    bridgeQuoteRequest,
+    "Burrow withdraw bridgeBack",
+  );
 
   const quoteId = generateQuoteId(baseQuote, "shade-burrow-withdraw");
 

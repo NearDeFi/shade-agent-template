@@ -11,7 +11,8 @@ if (!shouldRunLive) {
     });
   });
 } else {
-  let executeSolanaSwapFlow: typeof import("./solSwap").executeSolanaSwapFlow;
+  let solSwapFlow: typeof import("./solSwap").solSwapFlow;
+  let createFlowContext: typeof import("./context").createFlowContext;
   let config: typeof import("../config").config;
 
   const outputMint = process.env.LIVE_SOL_OUTPUT_MINT || "";
@@ -31,9 +32,11 @@ if (!shouldRunLive) {
 
   describe("live solana swap (devnet)", () => {
     beforeAll(async () => {
-      const solSwap = await import("./solSwap");
+      const solSwapMod = await import("./solSwap");
+      const contextMod = await import("./context");
       const cfg = await import("../config");
-      executeSolanaSwapFlow = solSwap.executeSolanaSwapFlow;
+      solSwapFlow = solSwapMod.solSwapFlow;
+      createFlowContext = contextMod.createFlowContext;
       config = cfg.config;
 
       if (!process.env.NEXT_PUBLIC_contractId) {
@@ -54,7 +57,8 @@ if (!shouldRunLive) {
     it(
       "executes a tiny SOL->SOL swap on devnet",
       async () => {
-        const result = await executeSolanaSwapFlow(liveIntent);
+        const ctx = createFlowContext({ intentId: liveIntent.intentId, config });
+        const result = await solSwapFlow.execute(liveIntent as any, ctx);
         expect(result.txId).toBeTruthy();
         console.log("Live swap tx:", result.txId);
       },

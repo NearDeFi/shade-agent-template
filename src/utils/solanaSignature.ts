@@ -1,7 +1,7 @@
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import crypto from "crypto";
-import { PublicKey } from "@solana/web3.js";
+import { address } from "@solana/kit";
 import { createLogger } from "./logger";
 
 const log = createLogger("solanaSig");
@@ -98,9 +98,9 @@ export function verifySolanaAddressMatch(
   expectedAddress: string,
 ): boolean {
   try {
-    // Normalize both addresses
-    const signatureAddress = new PublicKey(userSignature.publicKey).toBase58();
-    const expected = new PublicKey(expectedAddress).toBase58();
+    // Normalize both addresses via address() — validates format and returns canonical string
+    const signatureAddress = address(userSignature.publicKey);
+    const expected = address(expectedAddress);
     return signatureAddress === expected;
   } catch {
     return false;

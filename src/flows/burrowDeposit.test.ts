@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { ValidatedIntent, BurrowDepositMetadata } from "../queue/types";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { ValidatedIntent, BurrowDepositMetadata } from "../queue/types";
 import { createMockFlowContext } from "./context";
 
 // Mock problematic dependencies
@@ -82,7 +82,7 @@ describe("burrowDepositFlow", () => {
         metadata: {
           action: "kamino-deposit",
           tokenId: "wrap.near",
-        },
+        } as any,
       });
       expect(burrowDepositFlow.isMatch(intent)).toBe(false);
     });
@@ -168,6 +168,144 @@ describe("burrowDepositFlow", () => {
       await expect(
         burrowDepositFlow.validateAuthorization!(intent as any, ctx)
       ).rejects.toThrow("Burrow deposit requires userDestination");
+    });
+  });
+
+  describe("execute", () => {
+    const depositIntent = createBaseIntent({
+      metadata: {
+        action: "burrow-deposit",
+        tokenId: "wrap.near",
+      },
+    }) as ValidatedIntent & { metadata: BurrowDepositMetadata };
+
+    beforeEach(async () => {
+      const { deriveNearAgentAccount, ensureNearAccountFunded, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildSupplyTransaction } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockReset();
+      vi.mocked(ensureNearAccountFunded).mockReset();
+      vi.mocked(executeNearFunctionCall).mockReset();
+      vi.mocked(getAssetsPagedDetailed).mockReset();
+      vi.mocked(buildSupplyTransaction).mockReset();
+    });
+
+    it("returns dry-run result when dryRunSwaps is true", async () => {
+      const ctx = createMockFlowContext("test-intent-1", {
+        config: { dryRunSwaps: true } as any,
+      });
+      const result = await burrowDepositFlow.execute(depositIntent, ctx);
+      expect(result.txId).toContain("dry-run");
+    });
+
+    it("throws when token is not supported by Burrow", async () => {
+      const { deriveNearAgentAccount } = await import("../utils/near");
+      const { getAssetsPagedDetailed } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent-account.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([]);
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowDepositFlow.execute(depositIntent, ctx))
+        .rejects.toThrow("Token wrap.near is not supported by Burrow");
+    });
+
+    it("throws when token cannot be deposited", async () => {
+      const { deriveNearAgentAccount } = await import("../utils/near");
+      const { getAssetsPagedDetailed } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent-account.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_deposit: false, can_use_as_collateral: false } },
+      ] as any);
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowDepositFlow.execute(depositIntent, ctx))
+        .rejects.toThrow("Token wrap.near cannot be deposited to Burrow");
+    });
+
+    it("throws when token cannot be used as collateral but isCollateral is true", async () => {
+      const { deriveNearAgentAccount } = await import("../utils/near");
+      const { getAssetsPagedDetailed } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent-account.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_deposit: true, can_use_as_collateral: false } },
+      ] as any);
+
+      const collateralIntent = createBaseIntent({
+        metadata: {
+          action: "burrow-deposit",
+          tokenId: "wrap.near",
+          isCollateral: true,
+        },
+      }) as ValidatedIntent & { metadata: BurrowDepositMetadata };
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowDepositFlow.execute(collateralIntent, ctx))
+        .rejects.toThrow("Token wrap.near cannot be used as collateral");
+    });
+
+    it("executes deposit successfully", async () => {
+      const { deriveNearAgentAccount, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildSupplyTransaction } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent-account.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_deposit: true, can_use_as_collateral: true } },
+      ] as any);
+      vi.mocked(buildSupplyTransaction).mockResolvedValue({
+        contract_id: "contract.burrow.near",
+        method_name: "ft_transfer_call",
+        args: { amount: "100" },
+      } as any);
+      vi.mocked(executeNearFunctionCall).mockResolvedValue("tx-hash-123");
+
+      const ctx = createMockFlowContext("test-intent-1");
+      const result = await burrowDepositFlow.execute(depositIntent, ctx);
+
+      expect(result.txId).toBe("tx-hash-123");
+      expect(executeNearFunctionCall).toHaveBeenCalled();
+    });
+
+    it("uses intermediateAmount when available", async () => {
+      const { deriveNearAgentAccount, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildSupplyTransaction } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent-account.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_deposit: true, can_use_as_collateral: false } },
+      ] as any);
+      vi.mocked(buildSupplyTransaction).mockResolvedValue({
+        contract_id: "contract.burrow.near",
+        method_name: "ft_transfer_call",
+        args: {},
+      } as any);
+      vi.mocked(executeNearFunctionCall).mockResolvedValue("tx-hash-456");
+
+      const intentWithIntermediate = createBaseIntent({
+        intermediateAmount: "5000",
+        metadata: {
+          action: "burrow-deposit",
+          tokenId: "wrap.near",
+        },
+      }) as ValidatedIntent & { metadata: BurrowDepositMetadata };
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await burrowDepositFlow.execute(intentWithIntermediate, ctx);
+
+      expect(buildSupplyTransaction).toHaveBeenCalledWith(expect.objectContaining({
+        amount: "5000",
+      }));
     });
   });
 });

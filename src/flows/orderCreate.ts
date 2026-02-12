@@ -115,8 +115,8 @@ async function deriveOrderAgentAddress(
   const derivationSuffix = `order-${orderId}`;
 
   if (chain === "solana") {
-    const publicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
-    return publicKey.toBase58();
+    // deriveAgentPublicKey returns Address (string) — no .toBase58() needed
+    return deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
   } else if (chain === "near") {
     const { accountId } = await deriveNearAgentAccount(undefined, derivationSuffix);
     return accountId;

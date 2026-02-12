@@ -1,7 +1,13 @@
 import { OneClickService } from "@defuse-protocol/one-click-sdk-typescript";
-import { getIntentsByState, setStatus, IntentStatus } from "../state/status";
-import { RedisQueueClient } from "./redis";
-import { ValidatedIntent } from "./types";
+import { config } from "../config";
+import {
+  enqueueIntentWithStatus,
+  getIntentsByState,
+  setStatus,
+  transitionStatus,
+  type IntentStatus,
+} from "../state/status";
+import { runWithConcurrency } from "../utils/common";
 import { createLogger } from "../utils/logger";
 import { ensureIntentsApiBase } from "../infra/intentsApi";
 import {
@@ -9,18 +15,15 @@ import {
   createLinkedAbortController,
   delayWithSignal,
 } from "./runtime";
+import type { IntentMetadata, ValidatedIntent } from "./types";
 
 const log = createLogger("intentsPoller");
-
-// Shared queue client to avoid creating a new Redis connection per re-enqueue
-const sharedQueueClient = new RedisQueueClient();
 
 // How often to poll for swap status
 const STATUS_POLL_INTERVAL_MS = 5_000;
 
 interface IntentsSwapStatus {
   status: string;
-  // Add other fields as needed from the API response
 }
 
 /**
@@ -52,8 +55,7 @@ export function startIntentsPoller(
 
       await delayWithSignal(pollIntervalMs, signal);
     }
-  })().finally(async () => {
-    await sharedQueueClient.close();
+  })().finally(() => {
     log.info("Intents status poller stopped");
   });
 
@@ -67,7 +69,6 @@ export function startIntentsPoller(
 }
 
 async function pollPendingIntents() {
-  // Get all intents that are awaiting intents completion
   const pendingIntents = await getIntentsByState("awaiting_intents");
 
   if (pendingIntents.length === 0) {
@@ -75,17 +76,20 @@ async function pollPendingIntents() {
   }
 
   log.info(`Checking ${pendingIntents.length} pending intents`);
-
-  for (const intentStatus of pendingIntents) {
-    try {
-      await checkAndProcessIntent(intentStatus);
-    } catch (err) {
-      log.error(`Error checking intent ${intentStatus.intentId}`, { err: String(err) });
-    }
-  }
+  await runWithConcurrency(
+    pendingIntents,
+    config.intentsPollerConcurrency,
+    async (intentStatus) => {
+      try {
+        await checkAndProcessIntent(intentStatus);
+      } catch (err) {
+        log.error(`Error checking intent ${intentStatus.intentId}`, { err: String(err) });
+      }
+    },
+  );
 }
 
-async function checkAndProcessIntent(intentStatus: { intentId: string } & IntentStatus) {
+export async function checkAndProcessIntent(intentStatus: { intentId: string } & IntentStatus) {
   const { intentId, depositAddress, depositMemo } = intentStatus;
 
   if (!depositAddress) {
@@ -93,7 +97,6 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
     return;
   }
 
-  // Query the Defuse API for swap status
   let swapStatus: IntentsSwapStatus;
   try {
     swapStatus = await OneClickService.getExecutionStatus(
@@ -110,13 +113,11 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
   switch (swapStatus.status?.toLowerCase()) {
     case "success":
     case "completed":
-      // Intents swap completed - trigger the next step
       await handleIntentsSuccess(intentStatus);
       break;
 
     case "refunded":
     case "failed":
-      // Intents swap failed
       await setStatus(intentId, {
         state: "failed",
         error: `Intents swap ${swapStatus.status}`,
@@ -125,7 +126,6 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
 
     case "pending":
     case "processing":
-      // Still in progress, continue polling
       break;
 
     default:
@@ -133,8 +133,13 @@ async function checkAndProcessIntent(intentStatus: { intentId: string } & Intent
   }
 }
 
-async function handleIntentsSuccess(intentStatus: { intentId: string } & IntentStatus) {
-  const { intentId, intentData } = intentStatus;
+export async function handleIntentsSuccess(intentStatus: { intentId: string } & IntentStatus) {
+  const {
+    intentId,
+    intentData,
+    depositAddress,
+    depositMemo,
+  } = intentStatus;
 
   if (!intentData) {
     log.error(`Intent ${intentId} missing intentData`);
@@ -145,25 +150,47 @@ async function handleIntentsSuccess(intentStatus: { intentId: string } & IntentS
     return;
   }
 
-  log.info(`Intents swap completed for ${intentId}, queueing next step`);
-
-  // Update status to indicate we're moving to the next step
-  await setStatus(intentId, {
+  const claim = await transitionStatus(intentId, "awaiting_intents", {
     state: "processing",
-    detail: "Intents swap completed, executing Jupiter swap",
+    detail: "Intents swap completed, queueing execution",
+    depositAddress,
+    depositMemo,
+    intentData,
   });
+  if (!claim.updated) {
+    log.info(`Skipping ${intentId}; state changed before success handling`, {
+      currentState: claim.currentStatus?.state,
+    });
+    return;
+  }
 
-  // Re-enqueue the intent for the consumer to process the Jupiter swap
-  // Mark it so the consumer knows intents is already done
   const updatedIntent: ValidatedIntent = {
     ...intentData,
-    metadata: {
-      ...intentData.metadata,
-      intentsCompleted: true,
-    },
+    metadata: intentData.metadata
+      ? { ...intentData.metadata, intentsCompleted: true } as IntentMetadata
+      : undefined,
   };
 
-  await sharedQueueClient.enqueueIntent(updatedIntent);
+  try {
+    await enqueueIntentWithStatus(updatedIntent, {
+      state: "processing",
+      detail: "Intents swap completed, executing Jupiter swap",
+      depositAddress,
+      depositMemo,
+      intentData: updatedIntent,
+    });
+  } catch (err) {
+    log.error(`Failed to re-enqueue ${intentId} after intents completion`, { err: String(err) });
+    await setStatus(intentId, {
+      state: "awaiting_intents",
+      detail: "Retrying intents completion handoff",
+      depositAddress,
+      depositMemo,
+      intentData,
+      error: undefined,
+    });
+    return;
+  }
 
-  log.info(`Re-enqueued intent ${intentId} for Jupiter swap`);
+  log.info(`Re-enqueued intent ${intentId} for post-intents execution`);
 }

@@ -1,6 +1,4 @@
-import { Account } from "@near-js/accounts";
 import { JsonRpcProvider } from "@near-js/providers";
-import { KeyPairSigner } from "@near-js/signers";
 import { NEAR } from "@near-js/tokens";
 import { actionCreators, SignedDelegate, Action, encodeDelegateAction, buildDelegateAction, Signature } from "@near-js/transactions";
 import { PublicKey, KeyType } from "@near-js/crypto";
@@ -8,18 +6,19 @@ import type { FinalExecutionOutcome } from "@near-js/types";
 import { config, isTestnet } from "../config";
 import { deriveNearImplicitAccount, NEAR_DEFAULT_PATH } from "./chainSignature";
 import { getNearProvider, extractTxHash } from "./near";
+import { getRelayerAccount } from "../infra/relayerAccount";
 import { requestSignature } from "@neardefi/shade-agent-js";
 import { utils } from "chainsig.js";
-import { parseSeedPhrase } from "near-seed-phrase";
 import crypto from "crypto";
-import bs58 from "bs58";
 import { createLogger } from "./logger";
 
 const log = createLogger("nearMetaTx");
 
 const { uint8ArrayToHex } = utils.cryptography;
 
-export const GAS_FOR_FT_TRANSFER_CALL = BigInt("100000000000000"); // 100 TGas
+import { GAS_FOR_FT_TRANSFER_CALL, IMPLICIT_ACCOUNT_FUNDING } from "../constants";
+
+export { GAS_FOR_FT_TRANSFER_CALL };
 export const ONE_YOCTO = BigInt("1");
 export const ZERO_DEPOSIT = BigInt("0");
 
@@ -27,47 +26,6 @@ const DELEGATE_ACTION_TTL = 120;
 
 const networkId = isTestnet ? "testnet" : "mainnet";
 const nodeUrl = config.nearRpcUrls[0] || (isTestnet ? "https://rpc.testnet.near.org" : "https://rpc.mainnet.near.org");
-
-// Cache the relayer account setup
-let cachedRelayer: { account: Account; publicKey: string } | null = null;
-
-/**
- * Get the relayer account (agent's account that pays for gas)
- * Uses the NEAR_SEED_PHRASE to derive the account
- */
-async function getRelayerAccount(): Promise<{ account: Account; publicKey: string }> {
-  if (!config.nearSeedPhrase) {
-    throw new Error("NEAR_SEED_PHRASE not configured");
-  }
-
-  // Use cached account if available
-  if (cachedRelayer) {
-    return cachedRelayer;
-  }
-
-  const { secretKey, publicKey } = parseSeedPhrase(config.nearSeedPhrase);
-
-  // Derive implicit account ID from the public key
-  // The public key is in format "ed25519:base58key"
-  const pubKeyBase58 = publicKey.replace("ed25519:", "");
-  const pubKeyBytes = bs58.decode(pubKeyBase58);
-  const accountId = Buffer.from(pubKeyBytes).toString("hex");
-
-  log.info(`Relayer account from seed phrase: ${accountId}`);
-  log.debug(`Relayer public key: ${publicKey}`);
-
-  // Create signer and use shared provider
-  const signer = KeyPairSigner.fromSecretKey(secretKey as `ed25519:${string}`);
-
-  // Create account object
-  const account = new Account(accountId, getNearProvider(), signer);
-
-  cachedRelayer = { account, publicKey };
-  return cachedRelayer;
-}
-
-// Minimum NEAR to fund implicit account for gas (0.01 NEAR)
-const IMPLICIT_ACCOUNT_FUNDING = BigInt("10000000000000000000000");
 
 /**
  * Ensure the implicit account exists by funding it if needed.

@@ -12,25 +12,13 @@ import {
   GAS_FOR_FT_TRANSFER_CALL,
   ZERO_DEPOSIT,
   ONE_YOCTO,
+  NearAgentAccount,
 } from "../utils/near";
 import { getDefuseAssetId } from "../utils/tokenMappings";
 import { getFtBalance } from "../utils/nearRpc";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import { logNearAddressInfo } from "./context";
-import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
-
-// ─── Helper Types ──────────────────────────────────────────────────────────────
-
-interface BridgeBackResult {
-  txId: string;
-  depositAddress: string;
-}
-
-interface NearAgentAccount {
-  accountId: string;
-  publicKey: string;
-  derivationPath: string;
-}
+import { logNearAddressInfo, dryRunResult } from "./context";
+import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger, BridgeBackResult } from "./types";
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
 
@@ -134,14 +122,8 @@ const burrowWithdrawFlow: FlowDefinition<BurrowWithdrawMetadata> = {
     const { config, logger } = ctx;
     const meta = intent.metadata;
 
-    if (config.dryRunSwaps) {
-      const result: FlowResult = { txId: `dry-run-burrow-withdraw-${intent.intentId}` };
-      if (meta.bridgeBack) {
-        result.bridgeTxId = `dry-run-bridge-${intent.intentId}`;
-        result.intentsDepositAddress = "dry-run-deposit-address";
-      }
-      return result;
-    }
+    const dry = dryRunResult("burrow-withdraw", intent.intentId, config, { bridgeBack: !!meta.bridgeBack });
+    if (dry) return dry;
 
     if (!intent.userDestination) {
       throw new Error("Burrow withdraw requires userDestination for custody isolation");
@@ -206,22 +188,3 @@ const burrowWithdrawFlow: FlowDefinition<BurrowWithdrawMetadata> = {
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 export { burrowWithdrawFlow };
-
-// Legacy exports for backwards compatibility during migration
-export const isBurrowWithdrawIntent = burrowWithdrawFlow.isMatch;
-
-import { config as globalConfig } from "../config";
-import { createFlowContext } from "./context";
-
-export async function executeBurrowWithdrawFlow(
-  intent: ValidatedIntent,
-): Promise<FlowResult> {
-  if (!burrowWithdrawFlow.isMatch(intent)) {
-    throw new Error("Intent does not match Burrow withdraw flow");
-  }
-  const ctx = createFlowContext({ intentId: intent.intentId, config: globalConfig });
-  if (burrowWithdrawFlow.validateAuthorization) {
-    await burrowWithdrawFlow.validateAuthorization(intent, ctx);
-  }
-  return burrowWithdrawFlow.execute(intent, ctx);
-}

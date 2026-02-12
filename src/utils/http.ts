@@ -1,3 +1,8 @@
+import { createLogger } from "./logger";
+import { delay } from "./common";
+
+const log = createLogger("http");
+
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
 export async function fetchWithTimeout(
@@ -33,6 +38,7 @@ export async function fetchWithRetry(
     try {
       const res = await fetchWithTimeout(input, init, timeoutMs);
       if (retryStatus.includes(res.status) && i + 1 < attempts) {
+        log.warn("HTTP retry (status)", { url: typeof input === 'string' ? input : input.toString(), status: res.status, attempt: i + 1, maxAttempts: attempts, backoffMs: backoffMs * (i + 1) });
         await delay(backoffMs * (i + 1));
         continue;
       }
@@ -40,14 +46,11 @@ export async function fetchWithRetry(
     } catch (err) {
       lastErr = err;
       if (i + 1 >= attempts) break;
+      log.warn("HTTP retry (error)", { url: typeof input === 'string' ? input : input.toString(), err: String(err), attempt: i + 1, maxAttempts: attempts, backoffMs: backoffMs * (i + 1) });
       await delay(backoffMs * (i + 1));
     }
   }
   throw lastErr ?? new Error("fetchWithRetry failed");
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export { DEFAULT_FETCH_TIMEOUT_MS };

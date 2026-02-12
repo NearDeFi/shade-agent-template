@@ -41,4 +41,17 @@ describe("ethAccount route", () => {
     expect(body.senderAddress).toBe("0xabc");
     expect(body.balance).toBe("123");
   });
+
+  it("returns 500 when derivation fails", async () => {
+    deriveAddressAndPublicKeyMock.mockRejectedValue(new Error("derivation error"));
+    const res = await app.request("/api/eth-account");
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 500 when balance fetch fails", async () => {
+    deriveAddressAndPublicKeyMock.mockResolvedValue({ address: "0xabc" });
+    getBalanceMock.mockRejectedValue(new Error("balance error"));
+    const res = await app.request("/api/eth-account");
+    expect(res.status).toBe(500);
+  });
 });

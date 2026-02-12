@@ -1,7 +1,5 @@
 import { chainAdapters, utils } from "chainsig.js";
 import { JsonRpcProvider } from "@near-js/providers";
-import { Account } from "@near-js/accounts";
-import { KeyPairSigner } from "@near-js/signers";
 import { NEAR } from "@near-js/tokens";
 import {
   Transaction as NearTransaction,
@@ -14,14 +12,13 @@ import {
 } from "@near-js/transactions";
 import { PublicKey, KeyType } from "@near-js/crypto";
 import { baseDecode } from "@near-js/utils";
-import { parseSeedPhrase } from "near-seed-phrase";
-import bs58 from "bs58";
 import crypto from "crypto";
 import type { FinalExecutionOutcome } from "@near-js/types";
 import { config, isTestnet } from "../config";
 import { requestSignature } from "@neardefi/shade-agent-js";
 import { base58Decode } from "./common";
 import { chainSignatureContract } from "../infra/chainSignature";
+import { getRelayerAccount } from "../infra/relayerAccount";
 import { createLogger } from "./logger";
 
 const log = createLogger("near");
@@ -54,38 +51,7 @@ export function extractTxHash(result: FinalExecutionOutcome): string {
   return r.transaction?.hash || r.transaction_outcome?.id;
 }
 
-// Minimum NEAR to fund implicit account (0.01 NEAR)
-const IMPLICIT_ACCOUNT_FUNDING = BigInt("10000000000000000000000");
-
-// Cache the relayer account
-let cachedRelayer: { account: Account; publicKey: string } | null = null;
-
-/**
- * Get the relayer account (agent's account that pays for gas and funds implicit accounts)
- */
-async function getRelayerAccount(): Promise<{ account: Account; publicKey: string }> {
-  if (!config.nearSeedPhrase) {
-    throw new Error("NEAR_SEED_PHRASE not configured");
-  }
-
-  if (cachedRelayer) {
-    return cachedRelayer;
-  }
-
-  const { secretKey, publicKey } = parseSeedPhrase(config.nearSeedPhrase);
-
-  const pubKeyBase58 = publicKey.replace("ed25519:", "");
-  const pubKeyBytes = bs58.decode(pubKeyBase58);
-  const accountId = Buffer.from(pubKeyBytes).toString("hex");
-
-  log.info(`Relayer account from seed phrase: ${accountId}`);
-
-  const signer = KeyPairSigner.fromSecretKey(secretKey as `ed25519:${string}`);
-  const account = new Account(accountId, nearProvider, signer);
-
-  cachedRelayer = { account, publicKey };
-  return cachedRelayer;
-}
+import { GAS_FOR_FT_TRANSFER_CALL, IMPLICIT_ACCOUNT_FUNDING } from "../constants";
 
 /**
  * Ensures the implicit account exists by funding it if needed.
@@ -337,8 +303,7 @@ export async function executeNearFunctionCall(
   return broadcastNearTx(signedTx);
 }
 
-// Gas constants
-export const GAS_FOR_FT_TRANSFER_CALL = BigInt("100000000000000"); // 100 TGas
+export { GAS_FOR_FT_TRANSFER_CALL } from "../constants";
 export const ONE_YOCTO = BigInt("1");
 export const ZERO_DEPOSIT = BigInt("0");
 

@@ -2,6 +2,8 @@ import { config } from "../config";
 import type { IntentChain, OrderType, OrderSide, PriceCondition } from "../queue/types";
 import { redis } from "../infra/redis";
 import { createLogger } from "../utils/logger";
+import { duplicateRedisForTransition, scanSetMembers } from "./redisHelpers";
+import { assertValidTransition, VALID_ORDER_TRANSITIONS } from "./transitions";
 
 const log = createLogger("orders");
 
@@ -92,6 +94,7 @@ const ORDER_TRIGGERED_SET = "orders:triggered"; // Set of triggered order IDs fo
 const ORDER_USER_SET_PREFIX = "orders:user:";
 const ORDER_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const ORDER_TRANSITION_MAX_RETRIES = 5;
+const ORDER_SCAN_COUNT = 200;
 
 function orderKey(orderId: string) {
   return `${ORDER_PREFIX}${orderId}`;
@@ -338,56 +341,68 @@ export async function transitionOrderState(
 ): Promise<{ updated: boolean; order: Order | null; currentState: OrderState | null }> {
   const expected = Array.isArray(expectedState) ? expectedState : [expectedState];
   const key = orderKey(orderId);
+  const { client, release } = duplicateRedisForTransition();
 
-  for (let attempt = 0; attempt < ORDER_TRANSITION_MAX_RETRIES; attempt++) {
-    await redis.watch(key);
-    const raw = await redis.get(key);
-    if (!raw) {
-      await redis.unwatch();
-      return { updated: false, order: null, currentState: null };
-    }
+  try {
+    for (let attempt = 0; attempt < ORDER_TRANSITION_MAX_RETRIES; attempt++) {
+      await client.watch(key);
+      const raw = await client.get(key);
+      if (!raw) {
+        await client.unwatch();
+        return { updated: false, order: null, currentState: null };
+      }
 
-    let existing: Order;
-    try {
-      existing = JSON.parse(raw) as Order;
-    } catch (err) {
-      log.error("Failed to parse order from Redis", { err: String(err) });
-      await redis.unwatch();
-      return { updated: false, order: null, currentState: null };
-    }
+      let existing: Order;
+      try {
+        existing = JSON.parse(raw) as Order;
+      } catch (err) {
+        log.error("Failed to parse order from Redis", { err: String(err) });
+        await client.unwatch();
+        return { updated: false, order: null, currentState: null };
+      }
 
-    if (!expected.includes(existing.state)) {
-      await redis.unwatch();
-      return {
-        updated: false,
-        order: existing,
-        currentState: existing.state,
+      if (!expected.includes(existing.state)) {
+        await client.unwatch();
+        return {
+          updated: false,
+          order: existing,
+          currentState: existing.state,
+        };
+      }
+
+      // Validate transition is allowed by the state machine
+      try {
+        assertValidTransition(existing.state, nextState, VALID_ORDER_TRANSITIONS, "order");
+      } catch (err) {
+        log.warn(`${(err as Error).message} (orderId=${orderId})`);
+      }
+
+      const updated: Order = {
+        ...existing,
+        ...buildStateUpdates(nextState, additionalFields),
       };
-    }
 
-    const updated: Order = {
-      ...existing,
-      ...buildStateUpdates(nextState, additionalFields),
-    };
+      const tx = client.multi();
+      tx.set(key, JSON.stringify(updated), "EX", ORDER_TTL_SECONDS);
+      if (updated.state === "active") {
+        tx.sadd(ORDER_ACTIVE_SET, orderId);
+      } else {
+        tx.srem(ORDER_ACTIVE_SET, orderId);
+      }
+      if (updated.state === "triggered") {
+        tx.sadd(ORDER_TRIGGERED_SET, orderId);
+      } else {
+        tx.srem(ORDER_TRIGGERED_SET, orderId);
+      }
 
-    const tx = redis.multi();
-    tx.set(key, JSON.stringify(updated), "EX", ORDER_TTL_SECONDS);
-    if (updated.state === "active") {
-      tx.sadd(ORDER_ACTIVE_SET, orderId);
-    } else {
-      tx.srem(ORDER_ACTIVE_SET, orderId);
+      const execResult = await tx.exec();
+      if (execResult) {
+        return { updated: true, order: updated, currentState: updated.state };
+      }
+      // Watched key changed before EXEC; retry.
     }
-    if (updated.state === "triggered") {
-      tx.sadd(ORDER_TRIGGERED_SET, orderId);
-    } else {
-      tx.srem(ORDER_TRIGGERED_SET, orderId);
-    }
-
-    const execResult = await tx.exec();
-    if (execResult) {
-      return { updated: true, order: updated, currentState: updated.state };
-    }
-    // Watched key changed before EXEC; retry.
+  } finally {
+    await release();
   }
 
   const latest = await getOrder(orderId);
@@ -510,14 +525,14 @@ export async function markOrderFailed(
  * Get all active order IDs
  */
 export async function getActiveOrderIds(): Promise<string[]> {
-  return redis.smembers(ORDER_ACTIVE_SET);
+  return scanSetMembers(ORDER_ACTIVE_SET, 5_000);
 }
 
 /**
  * Get all active orders
  */
 export async function getActiveOrders(): Promise<Order[]> {
-  const orderIds = await getActiveOrderIds();
+  const orderIds = await scanSetMembers(ORDER_ACTIVE_SET, 5_000);
   if (orderIds.length === 0) {
     return scanOrdersByStateLegacy("active", 200);
   }
@@ -536,11 +551,11 @@ export async function getActiveOrders(): Promise<Order[]> {
 }
 
 export async function getTriggeredOrderIds(): Promise<string[]> {
-  return redis.smembers(ORDER_TRIGGERED_SET);
+  return scanSetMembers(ORDER_TRIGGERED_SET, 5_000);
 }
 
 export async function getTriggeredOrders(limit = 200): Promise<Order[]> {
-  const orderIds = await getTriggeredOrderIds();
+  const orderIds = await scanSetMembers(ORDER_TRIGGERED_SET, Math.max(limit * 2, 200));
   if (orderIds.length === 0) {
     return scanOrdersByStateLegacy("triggered", limit);
   }
@@ -596,7 +611,7 @@ export async function listUserOrders(
   options: { state?: OrderState; limit?: number } = {},
 ): Promise<Order[]> {
   const { state, limit = 50 } = options;
-  const orderIds = await redis.smembers(orderUserSetKey(userAddress));
+  const orderIds = await scanSetMembers(orderUserSetKey(userAddress), Math.max(limit * 4, 200));
   if (orderIds.length === 0) {
     const legacyOrders = await scanUserOrdersLegacy(userAddress, state, limit);
     return legacyOrders.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);

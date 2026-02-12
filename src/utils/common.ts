@@ -8,6 +8,29 @@ export function delay(ms: number): Promise<void> {
 }
 
 /**
+ * Execute async items with bounded concurrency.
+ */
+export async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+
+  let nextIndex = 0;
+  const runners = Array.from({ length: safeConcurrency }, async () => {
+    while (nextIndex < items.length) {
+      const idx = nextIndex;
+      nextIndex += 1;
+      await worker(items[idx]);
+    }
+  });
+
+  await Promise.all(runners);
+}
+
+/**
  * Decode a base58 string into a 32-byte Uint8Array (left-padded with zeros).
  */
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";

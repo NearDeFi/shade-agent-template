@@ -1,20 +1,19 @@
+import { address, type IInstruction } from "@solana/kit";
 import {
-  PublicKey,
-  TransactionMessage,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import {
-  createTransferInstruction,
-  getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountIdempotentInstruction,
-  getAccount,
-} from "@solana/spl-token";
+  findAssociatedTokenPda,
+  getTransferInstruction,
+  getCreateAssociatedTokenIdempotentInstruction,
+  fetchToken,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import {
   deriveAgentPublicKey,
   SOLANA_DEFAULT_PATH,
-  getSolanaConnection,
+  getSolanaRpc,
   signAndBroadcastSingleSigner,
+  buildAndCompileTransaction,
 } from "./solana";
+import { createDummySigner } from "./chainSignature";
 import {
   deriveNearAgentAccount,
   ensureNearAccountFunded,
@@ -23,7 +22,7 @@ import {
   ONE_YOCTO,
   getNearProvider,
 } from "./near";
-import { extractSolanaMintAddress, extractEvmTokenAddress, ETH_NATIVE_TOKEN } from "../constants";
+import { extractSolanaMintAddress, extractEvmTokenAddress, ETH_NATIVE_TOKEN, EVM_GAS_BUFFER } from "../constants";
 import {
   EvmChainName,
   deriveEvmAgentAddress,
@@ -49,17 +48,22 @@ export async function refundSolanaTokensToUser(
   logger: Logger,
   dryRun: boolean,
 ): Promise<{ txId: string; amount: string } | null> {
-  const mintAddress = new PublicKey(extractSolanaMintAddress(intermediateAsset));
-  const agentPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, userDestination);
-  const userPublicKey = new PublicKey(userDestination);
+  const mintAddr = address(extractSolanaMintAddress(intermediateAsset));
+  const agentAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, userDestination);
+  const userAddr = address(userDestination);
 
-  const connection = getSolanaConnection();
-  const agentAta = getAssociatedTokenAddressSync(mintAddress, agentPublicKey);
+  const rpc = getSolanaRpc();
+
+  const [agentAta] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: agentAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
 
   let balance: bigint;
   try {
-    const account = await getAccount(connection, agentAta);
-    balance = account.amount;
+    const account = await fetchToken(rpc, agentAta);
+    balance = account.data.amount;
   } catch {
     // ATA doesn't exist or has no balance — expected for new accounts
     logger.debug("[refund] Solana ATA not found, no balance to refund");
@@ -73,38 +77,40 @@ export async function refundSolanaTokensToUser(
 
   logger.info(`[refund] Refunding ${balance} of ${intermediateAsset} to ${userDestination}`);
 
-  const userAta = getAssociatedTokenAddressSync(mintAddress, userPublicKey);
+  const [userAta] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: userAddr,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
 
-  const instructions = [
-    createAssociatedTokenAccountIdempotentInstruction(
-      agentPublicKey,
-      userAta,
-      userPublicKey,
-      mintAddress,
-    ),
-    createTransferInstruction(
-      agentAta,
-      userAta,
-      agentPublicKey,
-      balance,
-    ),
+  const instructions: IInstruction[] = [
+    getCreateAssociatedTokenIdempotentInstruction({
+      payer: createDummySigner(address(agentAddress)),
+      ata: userAta,
+      owner: userAddr,
+      mint: mintAddr,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    }) as IInstruction,
+    getTransferInstruction({
+      source: agentAta,
+      destination: userAta,
+      authority: createDummySigner(agentAddress),
+      amount: balance,
+    }) as IInstruction,
   ];
 
-  const { blockhash } = await connection.getLatestBlockhash();
-  const messageV0 = new TransactionMessage({
-    payerKey: agentPublicKey,
-    recentBlockhash: blockhash,
+  const compiledTx = await buildAndCompileTransaction({
     instructions,
-  }).compileToV0Message();
-
-  const transaction = new VersionedTransaction(messageV0);
+    feePayer: agentAddress,
+    rpc,
+  });
 
   if (dryRun) {
     logger.info("[refund] Dry run — skipping broadcast");
     return { txId: `dry-run-refund-sol`, amount: balance.toString() };
   }
 
-  const txId = await signAndBroadcastSingleSigner(transaction, userDestination);
+  const txId = await signAndBroadcastSingleSigner(compiledTx, userDestination);
   logger.info(`[refund] Solana refund broadcast: ${txId}`);
   return { txId, amount: balance.toString() };
 }
@@ -200,9 +206,7 @@ export async function refundEvmTokensToUser(
   let balance: bigint;
   if (isNative) {
     balance = await getEvmNativeBalance(chain, agentAddress);
-    // Reserve gas buffer for the transfer itself
-    const gasBuffer = BigInt(100_000) * BigInt(30_000_000_000);
-    balance = balance > gasBuffer ? balance - gasBuffer : 0n;
+    balance = balance > EVM_GAS_BUFFER ? balance - EVM_GAS_BUFFER : 0n;
   } else {
     balance = await getEvmTokenBalance(chain, tokenAddress, agentAddress);
   }

@@ -5,16 +5,10 @@ import {
   deriveEvmAgentAddress,
   signAndBroadcastEvmTx,
 } from "../utils/evmChains";
-import { transferEvmTokensToUser, executeEvmBridgeBack } from "../utils/evmLending";
+import { transferEvmTokensToUser, executeEvmBridgeBack, MORPHO_BLUE_ADDRESS, MORPHO_SUPPORTED_CHAINS } from "../utils/evmLending";
 import { requireUserDestination } from "../utils/authorization";
+import { dryRunResult } from "./context";
 import type { FlowDefinition, FlowResult } from "./types";
-
-// ─── Morpho Blue Singleton ──────────────────────────────────────────────────────
-
-/** Same address on all chains */
-const MORPHO_BLUE_ADDRESS = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
-
-const MORPHO_SUPPORTED_CHAINS: EvmChainName[] = ["ethereum", "base"];
 
 // ─── Minimal ABI ────────────────────────────────────────────────────────────────
 
@@ -99,14 +93,8 @@ const morphoWithdrawFlow: FlowDefinition<MorphoWithdrawMetadata> = {
     const meta = intent.metadata;
     const chain = intent.sourceChain as EvmChainName;
 
-    if (appConfig.dryRunSwaps) {
-      const result: FlowResult = { txId: `dry-run-morpho-withdraw-${intent.intentId}` };
-      if (meta.bridgeBack) {
-        result.bridgeTxId = `dry-run-bridge-${intent.intentId}`;
-        result.intentsDepositAddress = "dry-run-deposit-address";
-      }
-      return result;
-    }
+    const dry = dryRunResult("morpho-withdraw", intent.intentId, appConfig, { bridgeBack: !!meta.bridgeBack });
+    if (dry) return dry;
 
     // 1. Derive agent EVM address
     const agentAddress = await deriveEvmAgentAddress(intent.userDestination);

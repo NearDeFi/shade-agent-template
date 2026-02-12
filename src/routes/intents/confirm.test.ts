@@ -1,20 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { config } from "../../config";
 import confirmApp from "./confirm";
 
-  const mocks = vi.hoisted(() => ({
-    validateIntentMock: vi.fn(),
-    getStatusMock: vi.fn(),
-    setStatusMock: vi.fn(),
-    transitionStatusMock: vi.fn(),
-    enqueueIntentMock: vi.fn(),
-    deriveAgentPublicKeyMock: vi.fn(),
-    getSolanaConnectionMock: vi.fn(),
-    deriveNearAgentAccountMock: vi.fn(),
+// Native mint address as a plain string (Kit's Address is just a branded string)
+const NATIVE_MINT_ADDRESS = "So11111111111111111111111111111111111111112";
+
+// Pre-computed ATA for the agent owner + native mint.
+// In the Kit world, findAssociatedTokenPda is async, but in the confirm service
+// we call it with specific inputs. We need to know what the ATA will be so we can
+// match it in our mock transaction. We'll just use a deterministic fake ATA string.
+const AGENT_WSOL_ATA = "AgentWsolAta111111111111111111111111111111111";
+
+const mocks = vi.hoisted(() => ({
+  validateIntentMock: vi.fn(),
+  getStatusMock: vi.fn(),
+  setStatusMock: vi.fn(),
+  enqueueIntentWithStatusMock: vi.fn(),
+  transitionStatusMock: vi.fn(),
+  enqueueIntentMock: vi.fn(),
+  deriveAgentPublicKeyMock: vi.fn(),
+  getSolanaRpcMock: vi.fn(),
+  deriveNearAgentAccountMock: vi.fn(),
   getNearTransactionStatusMock: vi.fn(),
+  findAssociatedTokenPdaMock: vi.fn(),
+}));
+
+// Prevent @ref-finance/ref-sdk from requiring 'react' at import time
+vi.mock("@ref-finance/ref-sdk", () => ({
+  init_env: vi.fn(),
+  ftGetTokenMetadata: vi.fn(),
+  fetchAllPools: vi.fn(),
+  estimateSwap: vi.fn(),
+  instantSwap: vi.fn(),
 }));
 
 vi.mock("../../queue/validation", () => ({
@@ -24,6 +42,7 @@ vi.mock("../../queue/validation", () => ({
 vi.mock("../../state/status", () => ({
   getStatus: mocks.getStatusMock,
   setStatus: mocks.setStatusMock,
+  enqueueIntentWithStatus: mocks.enqueueIntentWithStatusMock,
   transitionStatus: mocks.transitionStatusMock,
 }));
 
@@ -35,7 +54,12 @@ vi.mock("../../queue/client", () => ({
 
 vi.mock("../../utils/solana", () => ({
   deriveAgentPublicKey: mocks.deriveAgentPublicKeyMock,
-  getSolanaConnection: mocks.getSolanaConnectionMock,
+  getSolanaRpc: mocks.getSolanaRpcMock,
+}));
+
+vi.mock("@solana-program/token", () => ({
+  findAssociatedTokenPda: mocks.findAssociatedTokenPdaMock,
+  TOKEN_PROGRAM_ADDRESS: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
 }));
 
 vi.mock("../../utils/near", () => ({
@@ -45,7 +69,7 @@ vi.mock("../../utils/near", () => ({
 
 const app = new Hono().route("/api/intents", confirmApp);
 
-function buildTxInfo({
+function buildTxResponse({
   signer,
   agentWsolAta,
   preAmount,
@@ -58,20 +82,22 @@ function buildTxInfo({
   postAmount: string;
   includeAgentAta?: boolean;
 }) {
-  const staticKeys: PublicKey[] = [new PublicKey(signer)];
-  staticKeys.push(new PublicKey("11111111111111111111111111111111"));
+  // Kit RPC getTransaction with jsonParsed encoding returns account keys as
+  // an array of objects with `pubkey` field or plain strings.
+  const accountKeys: string[] = [signer, "11111111111111111111111111111111"];
   if (includeAgentAta) {
-    staticKeys.push(new PublicKey(agentWsolAta));
+    accountKeys.push(agentWsolAta);
   }
 
   return {
     transaction: {
       message: {
-        header: { numRequiredSignatures: 1 },
-        getAccountKeys: () => ({
-          length: staticKeys.length,
-          get: (idx: number) => staticKeys[idx],
-        }),
+        accountKeys,
+        header: {
+          numRequiredSignatures: 1,
+          numReadonlySignedAccounts: 0,
+          numReadonlyUnsignedAccounts: 1,
+        },
       },
     },
     meta: {
@@ -80,8 +106,8 @@ function buildTxInfo({
         ? [
             {
               accountIndex: 2,
-              mint: NATIVE_MINT.toBase58(),
-              uiTokenAmount: { amount: preAmount },
+              mint: NATIVE_MINT_ADDRESS,
+              uiTokenAmount: { amount: preAmount, decimals: 9, uiAmount: null, uiAmountString: preAmount },
             },
           ]
         : [],
@@ -89,8 +115,8 @@ function buildTxInfo({
         ? [
             {
               accountIndex: 2,
-              mint: NATIVE_MINT.toBase58(),
-              uiTokenAmount: { amount: postAmount },
+              mint: NATIVE_MINT_ADDRESS,
+              uiTokenAmount: { amount: postAmount, decimals: 9, uiAmount: null, uiAmountString: postAmount },
             },
           ]
         : [],
@@ -108,19 +134,29 @@ describe("intents confirm route (solana security)", () => {
     mocks.validateIntentMock.mockReset();
     mocks.getStatusMock.mockReset();
     mocks.setStatusMock.mockReset();
+    mocks.enqueueIntentWithStatusMock.mockReset();
     mocks.transitionStatusMock.mockReset();
     mocks.enqueueIntentMock.mockReset();
     mocks.deriveAgentPublicKeyMock.mockReset();
-    mocks.getSolanaConnectionMock.mockReset();
+    mocks.getSolanaRpcMock.mockReset();
     mocks.deriveNearAgentAccountMock.mockReset();
     mocks.getNearTransactionStatusMock.mockReset();
+    mocks.findAssociatedTokenPdaMock.mockReset();
+
+    mocks.enqueueIntentWithStatusMock.mockImplementation(async (intent: { intentId: string }, status: unknown) => {
+      await mocks.enqueueIntentMock(intent);
+      await mocks.setStatusMock(intent.intentId, status);
+    });
 
     mocks.validateIntentMock.mockImplementation((intent) => intent);
     mocks.transitionStatusMock.mockResolvedValue({
       updated: true,
       currentStatus: { state: "processing" },
     });
-    mocks.deriveAgentPublicKeyMock.mockResolvedValue(new PublicKey(agentOwner));
+    // deriveAgentPublicKey now returns Address (plain string)
+    mocks.deriveAgentPublicKeyMock.mockResolvedValue(agentOwner);
+    // findAssociatedTokenPda returns [ata, bump] — mock returns our deterministic ATA
+    mocks.findAssociatedTokenPdaMock.mockResolvedValue([AGENT_WSOL_ATA, 255]);
     mocks.getStatusMock.mockResolvedValue({
       state: "awaiting_user_tx",
       intentData: {
@@ -144,22 +180,17 @@ describe("intents confirm route (solana security)", () => {
   });
 
   it("rejects when expected user source is not a signer", async () => {
-    const agentWsolAta = getAssociatedTokenAddressSync(
-      NATIVE_MINT,
-      new PublicKey(agentOwner),
-      true,
-      TOKEN_PROGRAM_ID,
-    ).toBase58();
-
-    mocks.getSolanaConnectionMock.mockReturnValue({
-      getTransaction: vi.fn().mockResolvedValue(
-        buildTxInfo({
-          signer: otherSigner,
-          agentWsolAta,
-          preAmount: "0",
-          postAmount: "100",
-        }),
-      ),
+    mocks.getSolanaRpcMock.mockReturnValue({
+      getTransaction: vi.fn().mockReturnValue({
+        send: vi.fn().mockResolvedValue(
+          buildTxResponse({
+            signer: otherSigner,
+            agentWsolAta: AGENT_WSOL_ATA,
+            preAmount: "0",
+            postAmount: "100",
+          }),
+        ),
+      }),
     });
 
     const res = await app.request("/api/intents/intent-1/confirm", {
@@ -178,22 +209,17 @@ describe("intents confirm route (solana security)", () => {
   });
 
   it("rejects when agent wSOL ATA is not credited", async () => {
-    const agentWsolAta = getAssociatedTokenAddressSync(
-      NATIVE_MINT,
-      new PublicKey(agentOwner),
-      true,
-      TOKEN_PROGRAM_ID,
-    ).toBase58();
-
-    mocks.getSolanaConnectionMock.mockReturnValue({
-      getTransaction: vi.fn().mockResolvedValue(
-        buildTxInfo({
-          signer: userSourceAddress,
-          agentWsolAta,
-          preAmount: "100",
-          postAmount: "100",
-        }),
-      ),
+    mocks.getSolanaRpcMock.mockReturnValue({
+      getTransaction: vi.fn().mockReturnValue({
+        send: vi.fn().mockResolvedValue(
+          buildTxResponse({
+            signer: userSourceAddress,
+            agentWsolAta: AGENT_WSOL_ATA,
+            preAmount: "100",
+            postAmount: "100",
+          }),
+        ),
+      }),
     });
 
     const res = await app.request("/api/intents/intent-1/confirm", {
@@ -212,22 +238,17 @@ describe("intents confirm route (solana security)", () => {
   });
 
   it("accepts and enqueues when signer and wSOL inflow checks pass", async () => {
-    const agentWsolAta = getAssociatedTokenAddressSync(
-      NATIVE_MINT,
-      new PublicKey(agentOwner),
-      true,
-      TOKEN_PROGRAM_ID,
-    ).toBase58();
-
-    mocks.getSolanaConnectionMock.mockReturnValue({
-      getTransaction: vi.fn().mockResolvedValue(
-        buildTxInfo({
-          signer: userSourceAddress,
-          agentWsolAta,
-          preAmount: "10",
-          postAmount: "110",
-        }),
-      ),
+    mocks.getSolanaRpcMock.mockReturnValue({
+      getTransaction: vi.fn().mockReturnValue({
+        send: vi.fn().mockResolvedValue(
+          buildTxResponse({
+            signer: userSourceAddress,
+            agentWsolAta: AGENT_WSOL_ATA,
+            preAmount: "10",
+            postAmount: "110",
+          }),
+        ),
+      }),
     });
 
     const res = await app.request("/api/intents/intent-1/confirm", {
@@ -254,6 +275,6 @@ describe("intents confirm route (solana security)", () => {
 
     expect(res.status).toBe(409);
     expect(mocks.enqueueIntentMock).not.toHaveBeenCalled();
-    expect(mocks.getSolanaConnectionMock).not.toHaveBeenCalled();
+    expect(mocks.getSolanaRpcMock).not.toHaveBeenCalled();
   });
 });

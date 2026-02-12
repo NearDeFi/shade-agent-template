@@ -6,6 +6,25 @@ export const ETH_NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 // NEAR wrapped token contract (used as intermediate asset for NEAR-based intents)
 export const WRAP_NEAR_CONTRACT = "wrap.near";
 
+// ─── NEAR Gas & Deposit Constants ─────────────────────────────────────────────
+
+/** 100 TGas — standard gas for ft_transfer_call */
+export const GAS_FOR_FT_TRANSFER_CALL = BigInt("100000000000000");
+
+/** Minimum NEAR to fund implicit accounts (0.01 NEAR) */
+export const IMPLICIT_ACCOUNT_FUNDING = BigInt("10000000000000000000000");
+
+// ─── EVM Constants ────────────────────────────────────────────────────────────
+
+/** Gas buffer for native EVM transfers (~0.003 ETH at 30 gwei) */
+export const EVM_GAS_BUFFER = BigInt(100_000) * BigInt(30_000_000_000);
+
+// ─── External API URLs ────────────────────────────────────────────────────────
+
+export const JUPITER_PRICE_API_URL = "https://price.jup.ag/v6/price";
+export const COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price";
+export const RHEA_SDK_BASE_URL = "https://lendingsdk.rhea.finance";
+
 /**
  * Extracts the Solana mint address from various asset ID formats.
  * Supports:

@@ -45,6 +45,10 @@ export const config = {
   redisQueueKey: process.env.REDIS_QUEUE_KEY || "near:intents",
   redisVisibilityMs:
     parseInt(process.env.REDIS_VISIBILITY_MS || "", 10) || 30_000,
+  redisRecoveryIntervalMs:
+    parseInt(process.env.REDIS_RECOVERY_INTERVAL_MS || "", 10) || 5_000,
+  redisRecoveryBatchSize:
+    parseInt(process.env.REDIS_RECOVERY_BATCH_SIZE || "", 10) || 100,
   deadLetterKey: process.env.REDIS_DEAD_LETTER_KEY || "near:intents:dead-letter",
   maxIntentAttempts:
     parseInt(process.env.MAX_INTENT_ATTEMPTS || "", 10) || 3,
@@ -99,6 +103,10 @@ export const config = {
   /** Number of intents to process in parallel (default: 5) */
   queueConcurrency:
     parseInt(process.env.QUEUE_CONCURRENCY || "", 10) || 5,
+  intentsPollerConcurrency:
+    parseInt(process.env.INTENTS_POLLER_CONCURRENCY || "", 10) || 5,
+  orderPollerPairConcurrency:
+    parseInt(process.env.ORDER_POLLER_PAIR_CONCURRENCY || "", 10) || 4,
   /** Permission contract ID for self-custodial operations */
   permissionContractId:
     process.env.PERMISSION_CONTRACT_ID ||
@@ -112,6 +120,32 @@ export const config = {
   corsAllowedOrigins: parseCorsAllowedOrigins(),
 };
 
-if (!config.shadeContractId) {
-  log.warn("NEXT_PUBLIC_contractId is not set; derived keys will be empty");
+function validateConfig(): void {
+  const warnings: string[] = [];
+
+  if (!config.nearSeedPhrase) {
+    warnings.push("NEAR_SEED_PHRASE is not set; signing operations will fail");
+  }
+  if (!config.shadeContractId) {
+    // Already warned above, but include in summary
+    warnings.push("NEXT_PUBLIC_contractId is not set; derived keys will be empty");
+  }
+  if (config.enableQueue && config.redisUrl === "redis://127.0.0.1:6379" && process.env.NODE_ENV === "production") {
+    warnings.push("REDIS_URL is using localhost default in production");
+  }
+
+  if (warnings.length > 0) {
+    for (const w of warnings) {
+      log.warn(w);
+    }
+  }
+
+  log.info("Config loaded", {
+    network: config.chainSignatureNetwork,
+    enableQueue: config.enableQueue,
+    dryRunSwaps: config.dryRunSwaps,
+    queueConcurrency: config.queueConcurrency,
+  });
 }
+
+validateConfig();

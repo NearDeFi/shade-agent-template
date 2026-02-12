@@ -1,6 +1,7 @@
 import { requestSignature } from "@neardefi/shade-agent-js";
-import { contracts, utils } from "chainsig.js";
+import { utils } from "chainsig.js";
 import { config } from "../config";
+import { chainSignatureContract } from "../infra/chainSignature";
 import { parseSignature } from "./signature";
 import { SOLANA_DEFAULT_PATH } from "./solana";
 import { createLogger } from "./logger";
@@ -10,13 +11,6 @@ const log = createLogger("chainSig");
 const { uint8ArrayToHex } = utils.cryptography;
 
 export const NEAR_DEFAULT_PATH = "near-1";
-
-const chainSignatureContract = new contracts.ChainSignatureContract({
-  networkId: config.chainSignatureNetwork as "mainnet" | "testnet",
-  contractId: config.chainSignatureContractId,
-  masterPublicKey: config.chainSignatureMpcKey,
-  fallbackRpcUrls: config.nearRpcUrls,
-} as any);
 
 /**
  * Derives a NEAR implicit account address from the chain signature MPC.

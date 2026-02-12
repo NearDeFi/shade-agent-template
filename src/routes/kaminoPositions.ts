@@ -54,11 +54,10 @@ app.get("/:marketAddress", async (c) => {
   try {
     // Derive the user's Solana address using the same path as deposits
     // userDestination is the NEAR account ID (e.g., "user.near")
-    const userPublicKey = await deriveAgentPublicKey(
+    const userAddress = await deriveAgentPublicKey(
       SOLANA_DEFAULT_PATH,
       userDestination,
     );
-    const userAddress = userPublicKey.toBase58();
 
     const rpc = createKaminoRpc();
 
@@ -147,11 +146,10 @@ app.get("/", async (c) => {
     log.info(`Root route - deriving address for userDestination: ${userDestination}`);
     log.info(`Root route - derivation path: ${SOLANA_DEFAULT_PATH},${userDestination}`);
 
-    const userPublicKey = await deriveAgentPublicKey(
+    const userAddress = await deriveAgentPublicKey(
       SOLANA_DEFAULT_PATH,
       userDestination,
     );
-    const userAddress = userPublicKey.toBase58();
     log.info(`Root route - derived Solana address: ${userAddress}`);
 
     // Return the derived address and instructions

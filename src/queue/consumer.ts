@@ -36,6 +36,8 @@ export function startQueueConsumer(
   const concurrency = config.queueConcurrency;
   const pollTimeoutSeconds = options.pollTimeoutSeconds ?? 1;
   const inFlight = new Set<Promise<void>>();
+  const recoveryIntervalMs = Math.max(1_000, config.redisRecoveryIntervalMs);
+  let nextRecoveryAt = 0;
 
   const flowCatalog = options.flowCatalog ?? (
     process.env.NODE_ENV === "test"
@@ -65,6 +67,22 @@ export function startQueueConsumer(
   log.info(`Starting queue consumer with concurrency: ${concurrency}`);
   const loopPromise = (async () => {
     while (!signal.aborted) {
+      const now = Date.now();
+      if (now >= nextRecoveryAt) {
+        nextRecoveryAt = now + recoveryIntervalMs;
+        try {
+          const recovered = await queue.reclaimStaleIntents(
+            config.redisVisibilityMs,
+            config.redisRecoveryBatchSize,
+          );
+          if (recovered > 0) {
+            log.warn(`Recovered ${recovered} stale intents from processing queue`);
+          }
+        } catch (err) {
+          log.error("Failed to recover stale processing intents", { err: String(err) });
+        }
+      }
+
       // Wait if we've hit max concurrency
       if (inFlight.size >= concurrency) {
         await delayWithSignal(100, signal);

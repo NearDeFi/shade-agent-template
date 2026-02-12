@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ValidatedIntent, KaminoDepositMetadata } from "../queue/types";
 import { createMockFlowContext } from "./context";
 
@@ -35,16 +35,32 @@ vi.mock("@kamino-finance/klend-sdk", () => ({
   VanillaObligation: vi.fn(),
 }));
 
+vi.mock("bn.js", () => ({
+  default: vi.fn((val: string) => ({ toString: () => val })),
+}));
+
 vi.mock("../utils/solana", () => ({
-  deriveAgentPublicKey: vi.fn().mockResolvedValue({
-    toBase58: () => "SoLAgentPubKey123456789012345678901234567890",
-  }),
+  deriveAgentPublicKey: vi.fn().mockResolvedValue("SoLAgentPubKey123456789012345678901234567890"),
   SOLANA_DEFAULT_PATH: "solana-1",
+  createKaminoRpc: vi.fn().mockReturnValue({
+    getBalance: vi.fn().mockReturnValue({ send: vi.fn().mockResolvedValue({ value: 100_000_000n }) }),
+  }),
+  broadcastSolanaTx: vi.fn(),
+  buildAndCompileTransaction: vi.fn().mockResolvedValue({
+    messageBytes: new Uint8Array(32),
+    compiledMessage: {},
+  }),
+  attachMultipleSignaturesToCompiledTx: vi.fn().mockReturnValue(new Uint8Array(32)),
 }));
 
 vi.mock("../utils/chainSignature", () => ({
-  signWithNearChainSignatures: vi.fn(),
+  signWithNearChainSignatures: vi.fn().mockResolvedValue(new Uint8Array(64)),
   createDummySigner: vi.fn((addr: string) => ({ address: addr })),
+}));
+
+const mockRequireUserDestination = vi.fn();
+vi.mock("../utils/authorization", () => ({
+  requireUserDestination: (...args: unknown[]) => mockRequireUserDestination(...args),
 }));
 
 vi.mock("./registry", () => ({
@@ -153,7 +169,11 @@ describe("kaminoDepositFlow", () => {
   });
 
   describe("validateAuthorization", () => {
-    it("passes with valid userDestination", async () => {
+    beforeEach(() => {
+      mockRequireUserDestination.mockReset();
+    });
+
+    it("calls requireUserDestination", async () => {
       const intent = createBaseIntent({
         userDestination: "SoLUserDestination123456789012345678901234567890",
         metadata: {
@@ -164,12 +184,20 @@ describe("kaminoDepositFlow", () => {
       });
       const ctx = createMockFlowContext("test-intent-1");
 
-      await expect(
-        kaminoDepositFlow.validateAuthorization!(intent as any, ctx)
-      ).resolves.not.toThrow();
+      await kaminoDepositFlow.validateAuthorization!(intent as any, ctx);
+
+      expect(mockRequireUserDestination).toHaveBeenCalledWith(
+        intent,
+        ctx,
+        "Kamino deposit"
+      );
     });
 
-    it("throws without userDestination", async () => {
+    it("propagates error from requireUserDestination", async () => {
+      mockRequireUserDestination.mockImplementation(() => {
+        throw new Error("Kamino deposit requires userDestination");
+      });
+
       const intent = createBaseIntent({
         userDestination: undefined as any,
         metadata: {
@@ -183,6 +211,112 @@ describe("kaminoDepositFlow", () => {
       await expect(
         kaminoDepositFlow.validateAuthorization!(intent as any, ctx)
       ).rejects.toThrow("Kamino deposit requires userDestination");
+    });
+  });
+
+  describe("execute", () => {
+    const depositIntent = createBaseIntent({
+      metadata: {
+        action: "kamino-deposit",
+        marketAddress: "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF",
+        mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      },
+    }) as ValidatedIntent & { metadata: KaminoDepositMetadata };
+
+    beforeEach(async () => {
+      const { KaminoMarket, KaminoAction } = await import("@kamino-finance/klend-sdk");
+      const { broadcastSolanaTx } = await import("../utils/solana");
+      const { signWithNearChainSignatures } = await import("../utils/chainSignature");
+      vi.mocked(KaminoMarket.load).mockReset();
+      vi.mocked(KaminoAction.buildDepositTxns).mockReset();
+      vi.mocked(broadcastSolanaTx).mockReset();
+      vi.mocked(signWithNearChainSignatures).mockReset();
+      vi.mocked(signWithNearChainSignatures).mockResolvedValue(new Uint8Array(64));
+    });
+
+    it("returns dry-run result when dryRunSwaps is true", async () => {
+      const ctx = createMockFlowContext("test-intent-1", {
+        config: { dryRunSwaps: true } as any,
+      });
+      const result = await kaminoDepositFlow.execute(depositIntent, ctx);
+      expect(result.txId).toContain("dry-run");
+    });
+
+    it("throws when Kamino market fails to load", async () => {
+      const { KaminoMarket } = await import("@kamino-finance/klend-sdk");
+      vi.mocked(KaminoMarket.load).mockResolvedValue(null as any);
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(kaminoDepositFlow.execute(depositIntent, ctx))
+        .rejects.toThrow("Failed to load Kamino market");
+    });
+
+    it("throws when reserve not found for mint", async () => {
+      const { KaminoMarket } = await import("@kamino-finance/klend-sdk");
+      vi.mocked(KaminoMarket.load).mockResolvedValue({
+        getReserveByMint: vi.fn().mockReturnValue(null),
+      } as any);
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(kaminoDepositFlow.execute(depositIntent, ctx))
+        .rejects.toThrow("Reserve not found for mint");
+    });
+
+    it("executes deposit successfully with dual signing", async () => {
+      const { KaminoMarket, KaminoAction } = await import("@kamino-finance/klend-sdk");
+      const { broadcastSolanaTx } = await import("../utils/solana");
+
+      vi.mocked(KaminoMarket.load).mockResolvedValue({
+        getReserveByMint: vi.fn().mockReturnValue({
+          getLiquidityMint: vi.fn().mockReturnValue("mint-addr"),
+        }),
+      } as any);
+      vi.mocked(KaminoAction.buildDepositTxns).mockResolvedValue({
+        computeBudgetIxs: [{}],
+        setupIxs: [],
+        lendingIxs: [{}],
+        cleanupIxs: [],
+      } as any);
+      vi.mocked(broadcastSolanaTx).mockResolvedValue("kamino-deposit-tx-123");
+
+      const ctx = createMockFlowContext("test-intent-1");
+      const result = await kaminoDepositFlow.execute(depositIntent, ctx);
+
+      expect(result.txId).toBe("kamino-deposit-tx-123");
+    });
+
+    it("uses intermediateAmount when available", async () => {
+      const { KaminoMarket, KaminoAction } = await import("@kamino-finance/klend-sdk");
+      const { broadcastSolanaTx } = await import("../utils/solana");
+      const BN = (await import("bn.js")).default;
+
+      vi.mocked(KaminoMarket.load).mockResolvedValue({
+        getReserveByMint: vi.fn().mockReturnValue({
+          getLiquidityMint: vi.fn().mockReturnValue("mint-addr"),
+        }),
+      } as any);
+      vi.mocked(KaminoAction.buildDepositTxns).mockResolvedValue({
+        computeBudgetIxs: [],
+        setupIxs: [],
+        lendingIxs: [{}],
+        cleanupIxs: [],
+      } as any);
+      vi.mocked(broadcastSolanaTx).mockResolvedValue("tx-123");
+
+      const intentWithIntermediate = createBaseIntent({
+        intermediateAmount: "5000",
+        metadata: {
+          action: "kamino-deposit",
+          marketAddress: "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF",
+          mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        },
+      }) as ValidatedIntent & { metadata: KaminoDepositMetadata };
+
+      const ctx = createMockFlowContext("test-intent-1");
+      const result = await kaminoDepositFlow.execute(intentWithIntermediate, ctx);
+
+      expect(result.swappedAmount).toBe("5000");
+      expect(BN).toHaveBeenCalledWith("5000");
     });
   });
 });

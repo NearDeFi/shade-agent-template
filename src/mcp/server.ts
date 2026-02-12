@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -12,7 +11,8 @@ import {
   type IntentValidator,
 } from "../queue/validation";
 import { config } from "../config";
-import type { IntentMessage } from "../queue/types";
+import type { IntentMessage, IntentChain } from "../queue/types";
+import { FLOW_ACTIONS, type FlowAction } from "../types/actions";
 import { createLogger } from "../utils/logger";
 import { ensureIntentsApiBase } from "../infra/intentsApi";
 
@@ -144,7 +144,7 @@ export function createMcpServer(
   server.tool(
     "list_flows",
     "List all available DeFi flows and their capabilities",
-    ListFlowsSchema.shape,
+    ListFlowsSchema.shape as any,
     async () => {
       const flows = flowCatalog.getAll().map((flow) => ({
         action: flow.action,
@@ -170,16 +170,16 @@ export function createMcpServer(
   server.tool(
     "swap",
     "Execute a cross-chain token swap. Supports swaps between NEAR, Solana, Ethereum, Base, and Arbitrum.",
-    SwapSchema.shape,
-    async (params) => {
+    SwapSchema.shape as any,
+    async (params: any) => {
       const { sourceChain, destinationChain, sourceAsset, destinationAsset, amount, userAddress, slippageBps } = params;
 
       // Determine which swap flow to use
-      let action: string;
+      let action: FlowAction;
       if (destinationChain === "solana") {
-        action = "solana-swap";
+        action = FLOW_ACTIONS.SOL_SWAP;
       } else if (destinationChain === "near") {
-        action = "near-swap";
+        action = FLOW_ACTIONS.NEAR_SWAP;
       } else {
         throw new Error(`Swap to ${destinationChain} not yet supported`);
       }
@@ -192,6 +192,7 @@ export function createMcpServer(
         finalAsset: destinationAsset,
         sourceAmount: amount,
         userDestination: userAddress,
+        agentDestination: userAddress,
         slippageBps,
         metadata: {
           action,
@@ -238,8 +239,8 @@ export function createMcpServer(
   server.tool(
     "lending_deposit",
     "Deposit tokens into a lending protocol. Supports Kamino (Solana) and Burrow (NEAR).",
-    LendingDepositSchema.shape,
-    async (params) => {
+    LendingDepositSchema.shape as any,
+    async (params: any) => {
       const { protocol, tokenAddress, amount, userAddress, marketAddress } = params;
 
       let intentMessage: IntentMessage;
@@ -256,6 +257,7 @@ export function createMcpServer(
           finalAsset: tokenAddress,
           sourceAmount: amount,
           userDestination: userAddress,
+          agentDestination: userAddress,
           metadata: {
             action: "kamino-deposit",
             marketAddress,
@@ -272,6 +274,7 @@ export function createMcpServer(
           finalAsset: tokenAddress,
           sourceAmount: amount,
           userDestination: userAddress,
+          agentDestination: userAddress,
           metadata: {
             action: "burrow-deposit",
             tokenId: tokenAddress,
@@ -318,8 +321,8 @@ export function createMcpServer(
   server.tool(
     "lending_withdraw",
     "Withdraw tokens from a lending protocol. Supports Kamino (Solana) and Burrow (NEAR). Optionally bridge to another chain.",
-    LendingWithdrawSchema.shape,
-    async (params) => {
+    LendingWithdrawSchema.shape as any,
+    async (params: any) => {
       const { protocol, tokenAddress, amount, userAddress, marketAddress, bridgeBack } = params;
 
       let intentMessage: IntentMessage;
@@ -331,11 +334,12 @@ export function createMcpServer(
         intentMessage = {
           intentId: generateIntentId(),
           sourceChain: "solana",
-          destinationChain: bridgeBack?.destinationChain as any || "solana",
+          destinationChain: bridgeBack?.destinationChain as IntentChain || "solana",
           sourceAsset: tokenAddress,
           finalAsset: bridgeBack?.destinationAsset || tokenAddress,
           sourceAmount: amount,
           userDestination: userAddress,
+          agentDestination: userAddress,
           metadata: {
             action: "kamino-withdraw",
             marketAddress,
@@ -348,11 +352,12 @@ export function createMcpServer(
         intentMessage = {
           intentId: generateIntentId(),
           sourceChain: "near",
-          destinationChain: bridgeBack?.destinationChain as any || "near",
+          destinationChain: bridgeBack?.destinationChain as IntentChain || "near",
           sourceAsset: tokenAddress,
           finalAsset: bridgeBack?.destinationAsset || tokenAddress,
           sourceAmount: amount,
           userDestination: userAddress,
+          agentDestination: userAddress,
           metadata: {
             action: "burrow-withdraw",
             tokenId: tokenAddress,
@@ -400,8 +405,8 @@ export function createMcpServer(
   server.tool(
     "get_quote",
     "Get a quote for a cross-chain swap without executing it. Returns estimated output amount and fees.",
-    GetQuoteSchema.shape,
-    async (params) => {
+    GetQuoteSchema.shape as any,
+    async (params: any) => {
       const { sourceChain, destinationChain, sourceAsset, destinationAsset, amount, slippageBps } = params;
 
       try {
@@ -418,9 +423,10 @@ export function createMcpServer(
 
         log.info("Requesting quote", quoteRequest as unknown as Record<string, unknown>);
 
-        const quoteResponse = await OneClickService.getQuote(quoteRequest as any) as any;
+        // `as any` justified: SDK types don't expose the full request shape
+        const quoteResponse = await OneClickService.getQuote(quoteRequest as any) as Record<string, unknown>;
 
-        const quote = quoteResponse.quote || quoteResponse;
+        const quote = (quoteResponse.quote || quoteResponse) as Record<string, unknown>;
         const amountOut = quote.amountOut || quote.minAmountOut || quote.amount;
 
         return {
@@ -465,8 +471,8 @@ export function createMcpServer(
   server.tool(
     "get_positions",
     "Get lending positions for a user on Kamino (Solana) or Burrow (NEAR). Returns deposits, borrows, and health metrics.",
-    GetPositionsSchema.shape,
-    async (params) => {
+    GetPositionsSchema.shape as any,
+    async (params: any) => {
       const { protocol, userAddress, marketAddress } = params;
 
       try {
@@ -524,7 +530,7 @@ export function createMcpServer(
             SOLANA_DEFAULT_PATH,
             userAddress,
           );
-          const derivedSolanaAddress = userPublicKey.toBase58();
+          const derivedSolanaAddress = userPublicKey;
 
           log.info("Fetching Kamino positions", { derivedSolanaAddress });
 
@@ -638,8 +644,8 @@ export function createMcpServer(
   server.tool(
     "list_markets",
     "List available lending markets for Kamino or Burrow. Returns market info, APYs, and liquidity.",
-    ListMarketsSchema.shape,
-    async (params) => {
+    ListMarketsSchema.shape as any,
+    async (params: any) => {
       const { protocol } = params;
 
       try {

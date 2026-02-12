@@ -5,19 +5,10 @@ import {
   deriveEvmAgentAddress,
   signAndBroadcastEvmTx,
 } from "../utils/evmChains";
-import { transferEvmTokensToUser, executeEvmBridgeBack } from "../utils/evmLending";
+import { transferEvmTokensToUser, executeEvmBridgeBack, AAVE_POOL_ADDRESSES, AAVE_SUPPORTED_CHAINS } from "../utils/evmLending";
 import { requireUserDestination } from "../utils/authorization";
+import { dryRunResult } from "./context";
 import type { FlowDefinition, FlowResult } from "./types";
-
-// ─── Aave V3 Pool Addresses ────────────────────────────────────────────────────
-
-const AAVE_POOL_ADDRESSES: Partial<Record<EvmChainName, string>> = {
-  ethereum: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
-  base: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
-  arbitrum: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
-};
-
-const AAVE_SUPPORTED_CHAINS: EvmChainName[] = ["ethereum", "base", "arbitrum"];
 
 // ─── Minimal ABI ────────────────────────────────────────────────────────────────
 
@@ -72,14 +63,8 @@ const aaveWithdrawFlow: FlowDefinition<AaveWithdrawMetadata> = {
     const meta = intent.metadata;
     const chain = intent.sourceChain as EvmChainName;
 
-    if (appConfig.dryRunSwaps) {
-      const result: FlowResult = { txId: `dry-run-aave-withdraw-${intent.intentId}` };
-      if (meta.bridgeBack) {
-        result.bridgeTxId = `dry-run-bridge-${intent.intentId}`;
-        result.intentsDepositAddress = "dry-run-deposit-address";
-      }
-      return result;
-    }
+    const dry = dryRunResult("aave-withdraw", intent.intentId, appConfig, { bridgeBack: !!meta.bridgeBack });
+    if (dry) return dry;
 
     // 1. Derive agent EVM address
     const agentAddress = await deriveEvmAgentAddress(intent.userDestination);

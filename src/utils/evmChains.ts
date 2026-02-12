@@ -1,10 +1,17 @@
-// @ts-nocheck
-import { contracts, chainAdapters, utils } from "chainsig.js";
-import { createPublicClient, http, PublicClient, encodeFunctionData, erc20Abi } from "viem";
+import { chainAdapters, utils } from "chainsig.js";
+import {
+  Chain,
+  PublicClient,
+  createPublicClient,
+  encodeFunctionData,
+  erc20Abi,
+  http,
+} from "viem";
 import { mainnet, base, arbitrum, bsc } from "viem/chains";
 import { requestSignature } from "@neardefi/shade-agent-js";
 import { config } from "../config";
 import { ETH_NATIVE_TOKEN } from "../constants";
+import { chainSignatureContract } from "../infra/chainSignature";
 import { createLogger } from "./logger";
 
 const log = createLogger("evmChains");
@@ -25,7 +32,25 @@ export interface EvmChainConfig {
   /** Defuse asset ID for the native token (e.g., "nep141:eth.omft.near") */
   nativeDefuseAssetId: string;
   /** viem chain definition */
-  viemChain: typeof mainnet;
+  viemChain: Chain;
+}
+
+interface EvmAdapter {
+  deriveAddressAndPublicKey: (
+    accountId: string,
+    path: string,
+  ) => Promise<{ address: string; publicKey?: string }>;
+  prepareTransactionForSigning: (request: {
+    from: string;
+    to: string;
+    data?: string;
+    value?: string;
+  }) => Promise<{ transaction: unknown; hashesToSign: Uint8Array[] }>;
+  finalizeTransactionSigning: (params: {
+    transaction: unknown;
+    rsvSignatures: unknown[];
+  }) => unknown;
+  broadcastTx: (signedTransaction: unknown) => Promise<{ hash: string }>;
 }
 
 // ─── Static Config ────────────────────────────────────────────────────────────
@@ -67,24 +92,15 @@ export const EVM_CHAIN_CONFIGS: Record<EvmChainName, EvmChainConfig> = {
 
 export const EVM_SWAP_CHAINS: EvmChainName[] = ["ethereum", "base", "arbitrum", "bnb"];
 
-// ─── Shared MPC Contract ──────────────────────────────────────────────────────
-
-const MPC_CONTRACT = new contracts.ChainSignatureContract({
-  networkId: config.chainSignatureNetwork as "mainnet" | "testnet",
-  contractId: config.chainSignatureContractId,
-  masterPublicKey: config.chainSignatureMpcKey,
-  fallbackRpcUrls: config.nearRpcUrls,
-} as any);
-
 // ─── Adapter Cache ────────────────────────────────────────────────────────────
 
-const adapterCache = new Map<EvmChainName, any>();
+const adapterCache = new Map<EvmChainName, EvmAdapter>();
 const publicClientCache = new Map<EvmChainName, PublicClient>();
 
 /**
  * Returns a cached EVM chain adapter (chainsig.js) for the given chain.
  */
-export function getEvmAdapter(chain: EvmChainName) {
+export function getEvmAdapter(chain: EvmChainName): EvmAdapter {
   let adapter = adapterCache.get(chain);
   if (adapter) return adapter;
 
@@ -99,8 +115,8 @@ export function getEvmAdapter(chain: EvmChainName) {
 
   adapter = new chainAdapters.evm.EVM({
     publicClient,
-    contract: MPC_CONTRACT,
-  });
+    contract: chainSignatureContract,
+  }) as unknown as EvmAdapter;
   adapterCache.set(chain, adapter);
   return adapter;
 }
@@ -111,7 +127,11 @@ export function getEvmAdapter(chain: EvmChainName) {
 export function getEvmPublicClient(chain: EvmChainName): PublicClient {
   // Ensure adapter (and therefore client) is created
   getEvmAdapter(chain);
-  return publicClientCache.get(chain)!;
+  const client = publicClientCache.get(chain);
+  if (!client) {
+    throw new Error(`Missing public client for chain ${chain}`);
+  }
+  return client;
 }
 
 // ─── Address Derivation ───────────────────────────────────────────────────────
@@ -128,7 +148,7 @@ export async function deriveEvmAgentAddress(userDestination: string): Promise<st
 
   const path = `ethereum-1,${userDestination}`;
   const { address } = await adapter.deriveAddressAndPublicKey(contractId, path);
-  return address as string;
+  return address;
 }
 
 // ─── Sign & Broadcast ─────────────────────────────────────────────────────────
@@ -159,7 +179,7 @@ export async function signAndBroadcastEvmTx(
   });
 
   const txResult = await adapter.broadcastTx(signedTransaction);
-  return txResult.hash as string;
+  return txResult.hash;
 }
 
 // ─── Balance Helpers ──────────────────────────────────────────────────────────

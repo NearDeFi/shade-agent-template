@@ -11,7 +11,7 @@
 export type {
   DerivationPath,
   WalletType,
-  PriceCondition,
+  ContractPriceCondition,
   AllowedOperationType,
   SwapOperation,
   LimitOrderOperation,

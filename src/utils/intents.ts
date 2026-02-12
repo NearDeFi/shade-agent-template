@@ -81,7 +81,7 @@ export async function getIntentsQuote(
 
   const quoteResponse = await OneClickService.getQuote(quoteRequest as any);
 
-  const depositAddress = (quoteResponse as any).depositAddress;
+  const depositAddress = (quoteResponse as { depositAddress?: string }).depositAddress;
   if (!depositAddress) {
     throw new Error("Intents quote response missing depositAddress");
   }

@@ -9,6 +9,14 @@ import { config } from "./config";
 
 const mocks = vi.hoisted(() => {
   const intentStatuses = new Map<string, unknown>();
+  const enqueueIntentMock = vi.fn();
+  const setStatusMock = vi.fn((id: string, status: unknown) =>
+    intentStatuses.set(id, status),
+  );
+  const enqueueIntentWithStatusMock = vi.fn((intent: { intentId: string }, status: unknown) => {
+    enqueueIntentMock(intent);
+    return setStatusMock(intent.intentId, status);
+  });
   return {
     requestSignatureMock: vi.fn(),
     deriveAddressAndPublicKeyMock: vi.fn(),
@@ -18,10 +26,9 @@ const mocks = vi.hoisted(() => {
     deriveAgentPublicKeyMock: vi.fn(),
     getSolanaConnectionMock: vi.fn(),
     parseSignatureMock: vi.fn(),
-    enqueueIntentMock: vi.fn(),
-    setStatusMock: vi.fn((id: string, status: unknown) =>
-      intentStatuses.set(id, status),
-    ),
+    enqueueIntentMock,
+    setStatusMock,
+    enqueueIntentWithStatusMock,
     getStatusMock: vi.fn((id: string) =>
       Promise.resolve((intentStatuses.get(id) as any) || null),
     ),
@@ -33,6 +40,15 @@ const mocks = vi.hoisted(() => {
 
 const originals = vi.hoisted(() => ({
   fetch: globalThis.fetch,
+}));
+
+// Prevent @ref-finance/ref-sdk from requiring 'react' at import time
+vi.mock("@ref-finance/ref-sdk", () => ({
+  init_env: vi.fn(),
+  ftGetTokenMetadata: vi.fn(),
+  fetchAllPools: vi.fn(),
+  estimateSwap: vi.fn(),
+  instantSwap: vi.fn(),
 }));
 
 vi.mock("@neardefi/shade-agent-js", () => ({
@@ -63,9 +79,14 @@ vi.mock("./utils/ethereum", () => ({
 
 vi.mock("./utils/solana", () => ({
   deriveAgentPublicKey: mocks.deriveAgentPublicKeyMock,
+  getSolanaRpc: mocks.getSolanaConnectionMock,
   getSolanaConnection: mocks.getSolanaConnectionMock,
+  buildAndCompileTransaction: vi.fn().mockResolvedValue({
+    messageBytes: new Uint8Array([1, 2, 3]),
+    signatures: { "agent-pubkey": new Uint8Array(64) },
+  }),
   SOLANA_DEFAULT_PATH: "solana-1",
-  attachSignatureToVersionedTx: (tx: any, _sig: any) => tx,
+  attachSignatureToCompiledTx: (tx: any, _sig: any) => tx,
   broadcastSolanaTx: vi.fn().mockResolvedValue("txid"),
 }));
 
@@ -81,6 +102,7 @@ vi.mock("./queue/redis", () => ({
 
 vi.mock("./state/status", () => ({
   setStatus: mocks.setStatusMock,
+  enqueueIntentWithStatus: mocks.enqueueIntentWithStatusMock,
   getStatus: mocks.getStatusMock,
 }));
 
@@ -113,28 +135,13 @@ vi.mock("chainsig.js", () => ({
   },
 }));
 
-vi.mock("@solana/web3.js", () => {
-  const SystemProgram = {
-    transfer: vi.fn().mockReturnValue({}),
-  };
-  class TransactionMessage {
-    constructor(public args: unknown) {}
-    compileToV0Message() {
-      return {
-        serialize: () => new Uint8Array([1, 2, 3]),
-      };
-    }
-  }
-  class VersionedTransaction {
-    message: any;
-    signatures: Uint8Array[];
-    constructor(message: any, signatures?: Uint8Array[]) {
-      this.message = message;
-      this.signatures = signatures || [new Uint8Array(64)];
-    }
-  }
-  return { SystemProgram, TransactionMessage, VersionedTransaction };
-});
+vi.mock("@solana-program/system", () => ({
+  getTransferSolInstruction: vi.fn().mockReturnValue({
+    programAddress: "11111111111111111111111111111111",
+    accounts: [],
+    data: new Uint8Array(0),
+  }),
+}));
 
 vi.mock("ethers", () => {
   class DummyContract {
@@ -189,13 +196,9 @@ describe("integration: API routes", () => {
     mocks.finalizeTransactionSigningMock.mockReturnValue({ signed: true });
     mocks.broadcastTxMock.mockResolvedValue({ hash: "0xhash" });
     mocks.parseSignatureMock.mockReturnValue(new Uint8Array(64));
-    mocks.deriveAgentPublicKeyMock.mockResolvedValue({
-      toBase58: () => "agent-pubkey",
-    });
-    mocks.getSolanaConnectionMock.mockReturnValue({
-      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "block" }),
-      sendRawTransaction: vi.fn().mockResolvedValue("txid"),
-    });
+    // deriveAgentPublicKey returns Address (plain string)
+    mocks.deriveAgentPublicKeyMock.mockResolvedValue("agent-pubkey");
+    mocks.getSolanaConnectionMock.mockReturnValue({});
     vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.includes("okx.com")) {

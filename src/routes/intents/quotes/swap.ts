@@ -1,19 +1,17 @@
-import type { Context } from "hono";
-import { IntentChain } from "../../../queue/types";
+import type { IntentMetadata } from "../../../queue/types";
 import { config } from "../../../config";
 import { fetchWithRetry } from "../../../utils/http";
 import { SOL_NATIVE_MINT, extractSolanaMintAddress } from "../../../constants";
 import { getSolDefuseAssetId } from "../../../utils/tokenMappings";
 import { deriveAgentPublicKey } from "../../../utils/solana";
 import { flowCatalog } from "../../../queue/flowCatalog";
-import type { QuoteRequestBody, IntentsQuoteResponse } from "../types";
 import {
   buildAutoEnqueueIntent,
-  fetchDefuseQuote,
-  extractQuoteAmount,
+  fetchAndExtractQuote,
   generateQuoteId,
   tryAutoEnqueue,
   buildQuoteResponse,
+  type QuoteContext,
 } from "../helpers";
 import { createLogger } from "../../../utils/logger";
 import { getIntentsApiBase } from "../../../infra/intentsApi";
@@ -21,15 +19,8 @@ import { AppError } from "../../../errors/appError";
 
 const log = createLogger("intents/quotes/swap");
 
-export async function handleSwapQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  defuseQuoteFields: Record<string, unknown>,
-  isDryRun: boolean,
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
-) {
+export async function handleSwapQuote(ctx: QuoteContext) {
+  const { c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata } = ctx;
   // Derive the agent's Solana address for the 1-Click recipient (only needed for Solana flows)
   // Include userDestination in derivation path for custody isolation
   let agentSolanaAddress: string | undefined;
@@ -39,7 +30,7 @@ export async function handleSwapQuote(
       undefined,
       userDestination,
     );
-    agentSolanaAddress = agentPubkey.toBase58();
+    agentSolanaAddress = agentPubkey;
   }
 
   // Regular two-leg swap: First swap origin asset to SOL via Intents, then SOL to final token via Jupiter
@@ -66,19 +57,10 @@ export async function handleSwapQuote(
     agentRecipient: agentSolanaAddress,
   });
 
-  let intentsQuote: IntentsQuoteResponse;
-  try {
-    intentsQuote = await fetchDefuseQuote(solQuoteRequest);
-  } catch (err) {
-    log.error("intents quote failed", { err: String(err) });
-    throw new AppError("upstream_error", (err as Error).message, { cause: err });
-  }
-  const baseQuote = intentsQuote.quote || {};
-  const amountResult = extractQuoteAmount(baseQuote);
-  if ("error" in amountResult) {
-    throw new AppError("upstream_error", amountResult.error);
-  }
-  const solAmount = amountResult.amount;
+  const { intentsQuote, baseQuote, amountOut: solAmount } = await fetchAndExtractQuote(
+    solQuoteRequest,
+    "SOL swap",
+  );
 
   // Extract raw Solana mint address from asset ID (handles 1cs_v1:sol:spl:mint format)
   const outputMint = extractSolanaMintAddress(payload.destinationAsset);
@@ -128,7 +110,7 @@ export async function handleSwapQuote(
         agentDestination: agentSolanaAddress,
         intentsDepositAddress: baseQuote.depositAddress,
         depositMemo: baseQuote.depositMemo,
-        metadata,
+        metadata: metadata as IntentMetadata | undefined,
       })
     : undefined;
 

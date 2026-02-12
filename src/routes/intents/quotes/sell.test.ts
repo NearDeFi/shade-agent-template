@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { handleNearSellQuote, handleSellQuote } from "./sell";
 
 const mocks = vi.hoisted(() => ({
   fetchWithRetryMock: vi.fn(),
   setStatusMock: vi.fn(),
   deriveAgentPublicKeyMock: vi.fn(),
-  getSolanaConnectionMock: vi.fn(),
+  getSolanaRpcMock: vi.fn(),
   deserializeInstructionMock: vi.fn(),
   getAddressLookupTableAccountsMock: vi.fn(),
+  buildAndCompileTransactionMock: vi.fn(),
   deriveNearAgentAccountMock: vi.fn(),
   ensureNearAccountFundedMock: vi.fn(),
+  findAssociatedTokenPdaMock: vi.fn(),
 }));
 
 vi.mock("../../../utils/http", () => ({
@@ -23,9 +24,15 @@ vi.mock("../../../state/status", () => ({
 
 vi.mock("../../../utils/solana", () => ({
   deriveAgentPublicKey: mocks.deriveAgentPublicKeyMock,
-  getSolanaConnection: mocks.getSolanaConnectionMock,
+  getSolanaRpc: mocks.getSolanaRpcMock,
   deserializeInstruction: mocks.deserializeInstructionMock,
   getAddressLookupTableAccounts: mocks.getAddressLookupTableAccountsMock,
+  buildAndCompileTransaction: mocks.buildAndCompileTransactionMock,
+}));
+
+vi.mock("@solana-program/token", () => ({
+  findAssociatedTokenPda: mocks.findAssociatedTokenPdaMock,
+  TOKEN_PROGRAM_ADDRESS: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
 }));
 
 vi.mock("../../../utils/near", () => ({
@@ -33,12 +40,17 @@ vi.mock("../../../utils/near", () => ({
   ensureNearAccountFunded: mocks.ensureNearAccountFundedMock,
 }));
 
-function mockContext() {
+function mockQuoteContext(payload: Record<string, unknown>, isDryRun: boolean) {
   return {
-    json(payload: unknown, status = 200) {
-      return new Response(JSON.stringify(payload), { status });
-    },
-  } as any;
+    c: {
+      json(data: unknown, status = 200) {
+        return new Response(JSON.stringify(data), { status });
+      },
+    } as any,
+    payload: payload as any,
+    defuseQuoteFields: {},
+    isDryRun,
+  };
 }
 
 describe("sell quote handlers", () => {
@@ -46,28 +58,36 @@ describe("sell quote handlers", () => {
     mocks.fetchWithRetryMock.mockReset();
     mocks.setStatusMock.mockReset();
     mocks.deriveAgentPublicKeyMock.mockReset();
-    mocks.getSolanaConnectionMock.mockReset();
+    mocks.getSolanaRpcMock.mockReset();
     mocks.deserializeInstructionMock.mockReset();
     mocks.getAddressLookupTableAccountsMock.mockReset();
+    mocks.buildAndCompileTransactionMock.mockReset();
     mocks.deriveNearAgentAccountMock.mockReset();
     mocks.ensureNearAccountFundedMock.mockReset();
+    mocks.findAssociatedTokenPdaMock.mockReset();
 
+    // deriveAgentPublicKey now returns Address (plain string)
     mocks.deriveAgentPublicKeyMock.mockResolvedValue(
-      new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u"),
+      "8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u",
     );
-    mocks.getSolanaConnectionMock.mockReturnValue({
-      getLatestBlockhash: vi.fn().mockResolvedValue({
-        blockhash: "11111111111111111111111111111111",
-      }),
+    // findAssociatedTokenPda returns [ata, bump]
+    mocks.findAssociatedTokenPdaMock.mockResolvedValue([
+      "AgentWsolAta111111111111111111111111111111111",
+      255,
+    ]);
+    mocks.getSolanaRpcMock.mockReturnValue({});
+    mocks.getAddressLookupTableAccountsMock.mockResolvedValue({});
+    // deserializeInstruction returns Kit IInstruction
+    mocks.deserializeInstructionMock.mockReturnValue({
+      programAddress: "11111111111111111111111111111111",
+      accounts: [],
+      data: new Uint8Array(0),
     });
-    mocks.getAddressLookupTableAccountsMock.mockResolvedValue([]);
-    mocks.deserializeInstructionMock.mockReturnValue(
-      new TransactionInstruction({
-        keys: [],
-        programId: new PublicKey("11111111111111111111111111111111"),
-        data: Buffer.alloc(0),
-      }),
-    );
+    // buildAndCompileTransaction returns a CompiledTransaction
+    mocks.buildAndCompileTransactionMock.mockResolvedValue({
+      messageBytes: new Uint8Array([1, 2, 3]),
+      signatures: { "4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk": new Uint8Array(64) },
+    });
     mocks.fetchWithRetryMock
       .mockResolvedValueOnce(
         new Response(
@@ -98,16 +118,19 @@ describe("sell quote handlers", () => {
 
   it("does not persist state for Solana sell quote when dry is true", async () => {
     const res = await handleSellQuote(
-      mockContext(),
+      mockQuoteContext(
+        {
+          originAsset: "1cs_v1:sol:spl:DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263:6",
+          amount: "1000",
+        },
+        true,
+      ),
       {
-        originAsset: "1cs_v1:sol:spl:DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263:6",
-        amount: "1000",
-      } as any,
-      true,
-      "4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk",
-      "near",
-      "alice.near",
-      "nep141:wrap.near",
+        userSourceAddress: "4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk",
+        sellDestinationChain: "near",
+        sellDestinationAddress: "alice.near",
+        sellDestinationAsset: "nep141:wrap.near",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -118,16 +141,19 @@ describe("sell quote handlers", () => {
 
   it("persists state for Solana sell quote when dry is false", async () => {
     const res = await handleSellQuote(
-      mockContext(),
+      mockQuoteContext(
+        {
+          originAsset: "1cs_v1:sol:spl:DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263:6",
+          amount: "1000",
+        },
+        false,
+      ),
       {
-        originAsset: "1cs_v1:sol:spl:DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263:6",
-        amount: "1000",
-      } as any,
-      false,
-      "4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk",
-      "near",
-      "alice.near",
-      "nep141:wrap.near",
+        userSourceAddress: "4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk",
+        sellDestinationChain: "near",
+        sellDestinationAddress: "alice.near",
+        sellDestinationAsset: "nep141:wrap.near",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -138,16 +164,19 @@ describe("sell quote handlers", () => {
 
   it("does not fund or persist state for NEAR sell quote when dry is true", async () => {
     const res = await handleNearSellQuote(
-      mockContext(),
+      mockQuoteContext(
+        {
+          originAsset: "nep141:wrap.near",
+          amount: "1000",
+        },
+        true,
+      ),
       {
-        originAsset: "nep141:wrap.near",
-        amount: "1000",
-      } as any,
-      true,
-      "alice.testnet",
-      "solana",
-      "5tFfXhz6Z6Ed7QfA9hUJW6QcgQn3Ejj6inUeJ8V4aH7T",
-      "1cs_v1:sol:native",
+        userNearAddress: "alice.testnet",
+        sellDestinationChain: "solana",
+        sellDestinationAddress: "5tFfXhz6Z6Ed7QfA9hUJW6QcgQn3Ejj6inUeJ8V4aH7T",
+        sellDestinationAsset: "1cs_v1:sol:native",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -159,16 +188,19 @@ describe("sell quote handlers", () => {
 
   it("funds and persists state for NEAR sell quote when dry is false", async () => {
     const res = await handleNearSellQuote(
-      mockContext(),
+      mockQuoteContext(
+        {
+          originAsset: "nep141:wrap.near",
+          amount: "1000",
+        },
+        false,
+      ),
       {
-        originAsset: "nep141:wrap.near",
-        amount: "1000",
-      } as any,
-      false,
-      "alice.testnet",
-      "solana",
-      "5tFfXhz6Z6Ed7QfA9hUJW6QcgQn3Ejj6inUeJ8V4aH7T",
-      "1cs_v1:sol:native",
+        userNearAddress: "alice.testnet",
+        sellDestinationChain: "solana",
+        sellDestinationAddress: "5tFfXhz6Z6Ed7QfA9hUJW6QcgQn3Ejj6inUeJ8V4aH7T",
+        sellDestinationAsset: "1cs_v1:sol:native",
+      },
     );
 
     expect(res.status).toBe(200);

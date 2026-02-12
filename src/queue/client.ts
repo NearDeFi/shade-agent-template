@@ -1,4 +1,8 @@
 import { RedisQueueClient } from "./redis";
 
-// Shared queue client for HTTP routes/services that enqueue intents.
-export const queueClient = new RedisQueueClient();
+export function createQueueClient(): RedisQueueClient {
+  return new RedisQueueClient();
+}
+
+// Shared default queue client for HTTP routes/services.
+export const queueClient = createQueueClient();

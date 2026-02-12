@@ -7,16 +7,10 @@ import {
   signAndBroadcastEvmTx,
   getEvmTokenBalance,
 } from "../utils/evmChains";
-import { ensureErc20Allowance } from "../utils/evmLending";
+import { ensureErc20Allowance, MORPHO_BLUE_ADDRESS, MORPHO_SUPPORTED_CHAINS } from "../utils/evmLending";
 import { requireUserDestination } from "../utils/authorization";
+import { dryRunResult } from "./context";
 import type { FlowDefinition, FlowResult } from "./types";
-
-// ─── Morpho Blue Singleton ──────────────────────────────────────────────────────
-
-/** Same address on all chains */
-const MORPHO_BLUE_ADDRESS = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
-
-const MORPHO_SUPPORTED_CHAINS: EvmChainName[] = ["ethereum", "base"];
 
 // ─── Minimal ABI ────────────────────────────────────────────────────────────────
 
@@ -83,9 +77,8 @@ const morphoDepositFlow: FlowDefinition<MorphoDepositMetadata> = {
     const meta = intent.metadata;
     const chain = intent.destinationChain as EvmChainName;
 
-    if (appConfig.dryRunSwaps) {
-      return { txId: `dry-run-morpho-deposit-${intent.intentId}` };
-    }
+    const dry = dryRunResult("morpho-deposit", intent.intentId, appConfig);
+    if (dry) return dry;
 
     // 1. Derive agent EVM address
     const agentAddress = await deriveEvmAgentAddress(intent.userDestination);

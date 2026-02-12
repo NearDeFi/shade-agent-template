@@ -4,7 +4,7 @@
  */
 
 import { encodeFunctionData, erc20Abi, maxUint256 } from "viem";
-import { ETH_NATIVE_TOKEN } from "../constants";
+import { ETH_NATIVE_TOKEN, EVM_GAS_BUFFER } from "../constants";
 import {
   EvmChainName,
   signAndBroadcastEvmTx,
@@ -15,6 +15,21 @@ import {
 } from "./evmChains";
 import { getIntentsQuote, createBridgeBackQuoteRequest, BridgeBackConfig } from "./intents";
 import type { Logger, AppConfig } from "../flows/types";
+
+// ─── Shared Protocol Constants ──────────────────────────────────────────────────
+
+export const AAVE_POOL_ADDRESSES: Partial<Record<EvmChainName, string>> = {
+  ethereum: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+  base: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+  arbitrum: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+};
+
+export const AAVE_SUPPORTED_CHAINS: EvmChainName[] = ["ethereum", "base", "arbitrum"];
+
+/** Same address on all chains */
+export const MORPHO_BLUE_ADDRESS = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
+
+export const MORPHO_SUPPORTED_CHAINS: EvmChainName[] = ["ethereum", "base"];
 
 // ─── Allowance ──────────────────────────────────────────────────────────────────
 
@@ -89,8 +104,7 @@ export async function transferEvmTokensToUser(
 
   if (isNative) {
     const balance = await getEvmNativeBalance(chain, agentAddress);
-    const gasBuffer = BigInt(100_000) * BigInt(30_000_000_000); // ~0.003 ETH
-    const transferAmount = balance > gasBuffer ? balance - gasBuffer : 0n;
+    const transferAmount = balance > EVM_GAS_BUFFER ? balance - EVM_GAS_BUFFER : 0n;
 
     if (transferAmount <= 0n) {
       throw new Error(`[evmLending] Insufficient native balance for transfer on ${chain}`);

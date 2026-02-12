@@ -15,6 +15,7 @@ import {
   getOrderDescription,
 } from "../state/orders";
 import { getPrice, formatPrice } from "../utils/priceFeed";
+import { runWithConcurrency } from "../utils/common";
 import { RedisQueueClient } from "./redis";
 import { ValidatedIntent, OrderExecuteMetadata } from "./types";
 import { createLogger } from "../utils/logger";
@@ -96,33 +97,34 @@ async function pollOrders() {
 
   let triggeredCount = 0;
 
-  // Check each price pair
-  for (const [pairKey, orders] of ordersByPair) {
-    const [priceAsset, quoteAsset] = pairKey.split(":");
+  const pairEntries = Array.from(ordersByPair.entries());
+  await runWithConcurrency(
+    pairEntries,
+    config.orderPollerPairConcurrency,
+    async ([pairKey, orders]) => {
+      const [priceAsset, quoteAsset] = pairKey.split(":");
 
-    try {
-      // Fetch current price
-      const priceData = await getPrice(priceAsset, quoteAsset);
-      const currentPrice = priceData.price;
+      try {
+        const priceData = await getPrice(priceAsset, quoteAsset);
+        const currentPrice = priceData.price;
 
-      log.info(`${priceAsset}/${quoteAsset}: ${formatPrice(currentPrice)} (${orders.length} orders)`);
+        log.info(`${priceAsset}/${quoteAsset}: ${formatPrice(currentPrice)} (${orders.length} orders)`);
 
-      // Check each order against current price
-      for (const order of orders) {
-        if (shouldTrigger(order, currentPrice)) {
+        for (const order of orders) {
+          if (!shouldTrigger(order, currentPrice)) continue;
+
           log.info(`TRIGGERED: ${getOrderDescription(order)}`);
           log.info(`Current: ${formatPrice(currentPrice)}, Trigger: ${order.triggerPrice}`);
-
           const enqueued = await triggerOrder(order, formatPrice(currentPrice));
           if (enqueued) {
             triggeredCount++;
           }
         }
+      } catch (error) {
+        log.error(`Error fetching price for ${pairKey}`, { err: String(error) });
       }
-    } catch (error) {
-      log.error(`Error fetching price for ${pairKey}`, { err: String(error) });
-    }
-  }
+    },
+  );
 
   // Handle expired orders
   await handleExpiredOrders();
@@ -257,25 +259,29 @@ export async function checkOrders(): Promise<{
   let checked = 0;
   let triggered = 0;
 
-  for (const [pairKey, orders] of ordersByPair) {
-    const [priceAsset, quoteAsset] = pairKey.split(":");
+  const pairEntries = Array.from(ordersByPair.entries());
+  await runWithConcurrency(
+    pairEntries,
+    config.orderPollerPairConcurrency,
+    async ([pairKey, orders]) => {
+      const [priceAsset, quoteAsset] = pairKey.split(":");
 
-    try {
-      const priceData = await getPrice(priceAsset, quoteAsset);
+      try {
+        const priceData = await getPrice(priceAsset, quoteAsset);
 
-      for (const order of orders) {
-        checked++;
-        if (shouldTrigger(order, priceData.price)) {
+        for (const order of orders) {
+          checked++;
+          if (!shouldTrigger(order, priceData.price)) continue;
           const enqueued = await triggerOrder(order, formatPrice(priceData.price));
           if (enqueued) {
             triggered++;
           }
         }
+      } catch (error) {
+        log.error(`Error checking ${pairKey}`, { err: String(error) });
       }
-    } catch (error) {
-      log.error(`Error checking ${pairKey}`, { err: String(error) });
-    }
-  }
+    },
+  );
 
   await reconcileStuckTriggeredOrders();
 

@@ -1,31 +1,21 @@
-import type { Context } from "hono";
 import { IntentChain } from "../../../queue/types";
 import { detectEvmChainFromAsset, deriveEvmAgentAddress } from "../../../utils/evmChains";
-import { OpenAPI } from "@defuse-protocol/one-click-sdk-typescript";
 import { flowCatalog } from "../../../queue/flowCatalog";
-import type { QuoteRequestBody, IntentsQuoteResponse } from "../types";
 import {
   buildAutoEnqueueIntent,
-  fetchDefuseQuote,
-  extractQuoteAmount,
+  fetchAndExtractQuote,
   generateQuoteId,
   tryAutoEnqueue,
   buildQuoteResponse,
+  type QuoteContext,
 } from "../helpers";
 import { createLogger } from "../../../utils/logger";
 import { AppError } from "../../../errors/appError";
 
 const log = createLogger("intents/quotes/aave");
 
-export async function handleAaveDepositQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  defuseQuoteFields: Record<string, unknown>,
-  isDryRun: boolean,
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
-) {
+export async function handleAaveDepositQuote(ctx: QuoteContext) {
+  const { c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata } = ctx;
   const evmChain = detectEvmChainFromAsset(payload.destinationAsset);
   if (!evmChain || !["ethereum", "base", "arbitrum"].includes(evmChain)) {
     throw new AppError(
@@ -57,20 +47,10 @@ export async function handleAaveDepositQuote(
     agentRecipient: agentEvmAddress,
   });
 
-  let intentsQuote: IntentsQuoteResponse;
-  try {
-    intentsQuote = await fetchDefuseQuote(bridgeQuoteRequest);
-  } catch (err) {
-    log.error("Aave deposit: bridge quote failed", { err: String(err) });
-    throw new AppError("upstream_error", (err as Error).message, { cause: err });
-  }
-
-  const baseQuote = intentsQuote.quote || {};
-  const amountResult = extractQuoteAmount(baseQuote);
-  if ("error" in amountResult) {
-    throw new AppError("upstream_error", amountResult.error);
-  }
-  const amountOut = amountResult.amount;
+  const { intentsQuote, baseQuote, amountOut } = await fetchAndExtractQuote(
+    bridgeQuoteRequest,
+    "Aave deposit",
+  );
 
   const quoteId = generateQuoteId(baseQuote, "shade-aave-deposit");
 
@@ -109,14 +89,10 @@ export async function handleAaveDepositQuote(
 }
 
 export async function handleAaveWithdrawQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  isDryRun: boolean,
+  ctx: QuoteContext,
   aaveWithdraw: { underlyingAsset: string; bridgeBack?: { destinationChain: string; destinationAddress: string; destinationAsset: string; slippageTolerance?: number } },
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
 ) {
+  const { c, payload, isDryRun } = ctx;
   const quoteId = `shade-aave-withdraw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   return c.json({

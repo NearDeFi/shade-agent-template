@@ -10,8 +10,8 @@ export type DerivationPath = string;
 /** Supported wallet types for signature verification */
 export type WalletType = "Near" | "Solana" | "Evm";
 
-/** Price condition for triggering operations */
-export type PriceCondition = "Above" | "Below";
+/** Price condition for the on-chain permission contract (PascalCase to match Rust enum) */
+export type ContractPriceCondition = "Above" | "Below";
 
 // ─── Operation Types ────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ export interface LimitOrderOperation {
   price_asset: string;
   quote_asset: string;
   trigger_price: string; // U128 as string
-  condition: PriceCondition;
+  condition: ContractPriceCondition;
   source_asset: string;
   target_asset: string;
   max_amount: string;

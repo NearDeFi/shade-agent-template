@@ -1,4 +1,3 @@
-import { encodeFunctionData, erc20Abi, maxUint256 } from "viem";
 import { extractEvmTokenAddress } from "../constants";
 import { EvmSwapMetadata, ValidatedIntent } from "../queue/types";
 import {
@@ -6,15 +5,14 @@ import {
   EvmChainName,
   deriveEvmAgentAddress,
   signAndBroadcastEvmTx,
-  getEvmTokenAllowance,
-  getEvmTokenBalance,
-  getEvmNativeBalance,
   EVM_CHAIN_CONFIGS,
 } from "../utils/evmChains";
+import { ensureErc20Allowance, transferEvmTokensToUser } from "../utils/evmLending";
 import { fetchWithRetry } from "../utils/http";
 import { requireUserDestination } from "../utils/authorization";
 import { config } from "../config";
 import { isNativeEvmToken as isNativeToken } from "../utils/common";
+import { dryRunResult } from "./context";
 import type { FlowDefinition, FlowContext, FlowResult, Logger } from "./types";
 
 /**
@@ -81,125 +79,6 @@ async function getZeroExQuote(
   };
 }
 
-/**
- * Ensures the agent has sufficient ERC-20 allowance for the 0x exchange proxy.
- * If not, sends an approve(MAX_UINT256) transaction.
- */
-async function ensureAllowance(
-  chain: EvmChainName,
-  token: string,
-  agentAddress: string,
-  spender: string,
-  amount: bigint,
-  userDestination: string,
-  logger: Logger,
-): Promise<string | null> {
-  const currentAllowance = await getEvmTokenAllowance(chain, token, agentAddress, spender);
-  if (currentAllowance >= amount) {
-    logger.debug(`[evmSwap] Allowance sufficient`, {
-      chain,
-      token,
-      currentAllowance: currentAllowance.toString(),
-      required: amount.toString(),
-    });
-    return null;
-  }
-
-  logger.info(`[evmSwap] Approving token for 0x`, {
-    chain,
-    token,
-    spender,
-    currentAllowance: currentAllowance.toString(),
-  });
-
-  const approveData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "approve",
-    args: [spender as `0x${string}`, maxUint256],
-  });
-
-  const txHash = await signAndBroadcastEvmTx(
-    chain,
-    {
-      from: agentAddress,
-      to: token,
-      data: approveData,
-    },
-    userDestination,
-  );
-
-  logger.info(`[evmSwap] Approve tx confirmed: ${txHash}`, { chain });
-  return txHash;
-}
-
-/**
- * Transfers tokens from agent to user destination.
- * Handles both native (value transfer) and ERC-20 (transfer call).
- */
-async function transferToUser(
-  chain: EvmChainName,
-  token: string,
-  agentAddress: string,
-  userDestination: string,
-  logger: Logger,
-): Promise<string> {
-  if (isNativeToken(token)) {
-    // Native transfer - send entire balance minus gas buffer
-    const balance = await getEvmNativeBalance(chain, agentAddress);
-    const gasBuffer = BigInt(100_000) * BigInt(30_000_000_000); // ~0.003 ETH gas buffer
-    const transferAmount = balance > gasBuffer ? balance - gasBuffer : 0n;
-
-    if (transferAmount <= 0n) {
-      throw new Error(`[evmSwap] Insufficient native balance for transfer on ${chain}`);
-    }
-
-    logger.info(`[evmSwap] Transferring native tokens to user`, {
-      chain,
-      amount: transferAmount.toString(),
-      to: userDestination,
-    });
-
-    return signAndBroadcastEvmTx(
-      chain,
-      {
-        from: agentAddress,
-        to: userDestination,
-        value: `0x${transferAmount.toString(16)}`,
-      },
-      userDestination,
-    );
-  }
-
-  // ERC-20 transfer
-  const balance = await getEvmTokenBalance(chain, token, agentAddress);
-  if (balance <= 0n) {
-    throw new Error(`[evmSwap] No ERC-20 balance to transfer on ${chain}`);
-  }
-
-  logger.info(`[evmSwap] Transferring ERC-20 to user`, {
-    chain,
-    token,
-    amount: balance.toString(),
-    to: userDestination,
-  });
-
-  const transferData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "transfer",
-    args: [userDestination as `0x${string}`, balance],
-  });
-
-  return signAndBroadcastEvmTx(
-    chain,
-    {
-      from: agentAddress,
-      to: token,
-      data: transferData,
-    },
-    userDestination,
-  );
-}
-
 // ─── Flow Definition ───────────────────────────────────────────────────────────
 
 const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
@@ -219,7 +98,7 @@ const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
     const action = intent.metadata?.action;
     return (
       EVM_SWAP_CHAINS.includes(intent.destinationChain as EvmChainName) &&
-      (!action || action === "evm-swap" || action === "swap")
+      (!action || action === "evm-swap")
     );
   },
 
@@ -231,9 +110,8 @@ const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
     const { config: appConfig, logger } = ctx;
     const chain = intent.destinationChain as EvmChainName;
 
-    if (appConfig.dryRunSwaps) {
-      return { txId: `dry-run-evm-swap-${intent.intentId}` };
-    }
+    const dry = dryRunResult("evm-swap", intent.intentId, appConfig);
+    if (dry) return dry;
 
     // 1. Derive agent EVM address
     const agentAddress = await deriveEvmAgentAddress(intent.userDestination);
@@ -302,7 +180,7 @@ const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
     // 4. If selling ERC-20, ensure allowance
     const txIds: string[] = [];
     if (!isNativeToken(sellToken) && quote.allowanceTarget) {
-      const approveTx = await ensureAllowance(
+      const approveTx = await ensureErc20Allowance(
         chain,
         sellToken,
         agentAddress,
@@ -331,7 +209,7 @@ const evmSwapFlow: FlowDefinition<EvmSwapMetadata> = {
     logger.info(`[evmSwap] Swap tx confirmed: ${swapTxHash}`, { chain });
 
     // 6. Transfer output tokens from agent to user
-    const transferTxHash = await transferToUser(
+    const transferTxHash = await transferEvmTokensToUser(
       chain,
       buyToken,
       agentAddress,

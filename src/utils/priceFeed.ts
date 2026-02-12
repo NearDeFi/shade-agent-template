@@ -5,6 +5,7 @@
 
 import { fetchWithRetry } from "./http";
 import { config } from "../config";
+import { JUPITER_PRICE_API_URL, COINGECKO_API_URL } from "../constants";
 import { createLogger } from "./logger";
 
 const log = createLogger("priceFeed");
@@ -60,7 +61,7 @@ function setCachedPrice(baseAsset: string, quoteAsset: string, data: PriceData):
 
 // ─── Jupiter Price API (Solana) ─────────────────────────────────────────────────
 
-const JUPITER_PRICE_API = "https://price.jup.ag/v6/price";
+const JUPITER_PRICE_API = JUPITER_PRICE_API_URL;
 
 // Common Solana token addresses
 const SOLANA_TOKEN_ADDRESSES: Record<string, string> = {
@@ -114,7 +115,7 @@ async function getJupiterPrice(
 
 // ─── CoinGecko API (Fallback) ───────────────────────────────────────────────────
 
-const COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price";
+const COINGECKO_API = COINGECKO_API_URL;
 
 // CoinGecko IDs for common tokens
 const COINGECKO_IDS: Record<string, string> = {

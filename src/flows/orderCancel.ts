@@ -1,21 +1,20 @@
+import { address, type IInstruction } from "@solana/kit";
 import {
-  PublicKey,
-  TransactionMessage,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import {
-  createTransferInstruction,
-  getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountIdempotentInstruction,
-  getAccount,
-} from "@solana/spl-token";
+  findAssociatedTokenPda,
+  getTransferInstruction,
+  getCreateAssociatedTokenIdempotentInstruction,
+  fetchToken,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import { OrderCancelMetadata, ValidatedIntent } from "../queue/types";
 import {
   deriveAgentPublicKey,
   SOLANA_DEFAULT_PATH,
-  getSolanaConnection,
+  getSolanaRpc,
   signAndBroadcastSingleSigner,
+  buildAndCompileTransaction,
 } from "../utils/solana";
+import { createDummySigner } from "../utils/chainSignature";
 import {
   deriveNearAgentAccount,
   ensureNearAccountFunded,
@@ -41,15 +40,19 @@ async function getSolanaRemainingBalance(
   sourceAsset: string,
 ): Promise<bigint> {
   const derivationSuffix = `order-${orderId}`;
-  const agentPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
+  const agentAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
 
-  const connection = getSolanaConnection();
-  const mintAddress = new PublicKey(sourceAsset);
-  const ata = getAssociatedTokenAddressSync(mintAddress, agentPublicKey);
+  const rpc = getSolanaRpc();
+  const mintAddr = address(sourceAsset);
+  const [ata] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: agentAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
 
   try {
-    const account = await getAccount(connection, ata);
-    return account.amount;
+    const account = await fetchToken(rpc, ata);
+    return account.data.amount;
   } catch {
     return 0n;
   }
@@ -68,45 +71,52 @@ async function refundSolanaTokens(
   const { logger, config } = ctx;
 
   const derivationSuffix = `order-${orderId}`;
-  const agentPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
-  const userPublicKey = new PublicKey(userAddress);
+  const agentAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH, derivationSuffix);
+  const userAddr = address(userAddress);
 
-  const connection = getSolanaConnection();
-  const mintAddress = new PublicKey(sourceAsset);
-  const sourceAta = getAssociatedTokenAddressSync(mintAddress, agentPublicKey);
-  const destAta = getAssociatedTokenAddressSync(mintAddress, userPublicKey);
+  const rpc = getSolanaRpc();
+  const mintAddr = address(sourceAsset);
+
+  const [sourceAta] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: agentAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
+  const [destAta] = await findAssociatedTokenPda({
+    mint: mintAddr,
+    owner: userAddr,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
 
   logger.info(`Refunding ${amount} to ${userAddress}`);
 
-  const instructions = [
-    createAssociatedTokenAccountIdempotentInstruction(
-      agentPublicKey,
-      destAta,
-      userPublicKey,
-      mintAddress,
-    ),
-    createTransferInstruction(
-      sourceAta,
-      destAta,
-      agentPublicKey,
+  const instructions: IInstruction[] = [
+    getCreateAssociatedTokenIdempotentInstruction({
+      payer: createDummySigner(address(agentAddress)),
+      ata: destAta,
+      owner: userAddr,
+      mint: mintAddr,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    }) as IInstruction,
+    getTransferInstruction({
+      source: sourceAta,
+      destination: destAta,
+      authority: createDummySigner(agentAddress),
       amount,
-    ),
+    }) as IInstruction,
   ];
 
-  const { blockhash } = await connection.getLatestBlockhash();
-  const messageV0 = new TransactionMessage({
-    payerKey: agentPublicKey,
-    recentBlockhash: blockhash,
+  const compiledTx = await buildAndCompileTransaction({
     instructions,
-  }).compileToV0Message();
-
-  const transaction = new VersionedTransaction(messageV0);
+    feePayer: agentAddress,
+    rpc,
+  });
 
   if (config.dryRunSwaps) {
     return `dry-run-refund-${orderId}`;
   }
 
-  return signAndBroadcastSingleSigner(transaction, derivationSuffix);
+  return signAndBroadcastSingleSigner(compiledTx, derivationSuffix);
 }
 
 /**

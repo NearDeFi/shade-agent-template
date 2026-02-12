@@ -1,25 +1,24 @@
+import { address, type Address, type IInstruction } from "@solana/kit";
+import { getTransferSolInstruction } from "@solana-program/system";
 import {
-  Connection,
-  PublicKey,
-  SystemProgram,
-  TransactionMessage,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import {
-  createCloseAccountInstruction,
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+  findAssociatedTokenPda,
+  getCloseAccountInstruction,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import { SolBridgeOutMetadata, ValidatedIntent } from "../queue/types";
 import {
   deriveAgentPublicKey,
-  getSolanaConnection,
+  getSolanaRpc,
   signAndBroadcastDualSigner,
+  buildAndCompileTransaction,
   SOLANA_DEFAULT_PATH,
+  SOL_NATIVE_MINT,
+  type SolanaRpc,
 } from "../utils/solana";
+import { createDummySigner } from "../utils/chainSignature";
 import { getSolDefuseAssetId } from "../utils/tokenMappings";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
+import { dryRunResult } from "./context";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
@@ -29,53 +28,41 @@ import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from 
  * The lamports from the closed account go to the destination (the agent account).
  */
 async function unwrapWsol(
-  userAgentPublicKey: PublicKey,
-  feePayerPublicKey: PublicKey,
-  connection: Connection,
+  userAgentAddress: Address,
+  feePayerAddress: Address,
+  rpc: SolanaRpc,
   userDestination: string,
   logger: Logger,
   dryRun: boolean,
 ): Promise<string> {
-  const wsolAta = getAssociatedTokenAddressSync(
-    NATIVE_MINT,
-    userAgentPublicKey,
-    true,
-    TOKEN_PROGRAM_ID,
-  );
+  const [wsolAta] = await findAssociatedTokenPda({
+    mint: SOL_NATIVE_MINT,
+    owner: userAgentAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
 
   logger.info(`Closing wSOL ATA to unwrap`, {
-    wsolAta: wsolAta.toBase58(),
-    userAgent: userAgentPublicKey.toBase58(),
+    wsolAta,
+    userAgent: userAgentAddress,
   });
 
   if (dryRun) {
     return `dry-run-unwrap-wsol`;
   }
 
-  const closeIx = createCloseAccountInstruction(
-    wsolAta,
-    userAgentPublicKey, // lamports go to the agent account
-    userAgentPublicKey, // owner of the wSOL ATA
-    [],
-    TOKEN_PROGRAM_ID,
-  );
+  const closeIx = getCloseAccountInstruction({
+    account: wsolAta,
+    destination: userAgentAddress,
+    owner: createDummySigner(userAgentAddress),
+  }, { programAddress: TOKEN_PROGRAM_ADDRESS });
 
-  const { blockhash } = await connection.getLatestBlockhash();
+  const compiledTx = await buildAndCompileTransaction({
+    instructions: [closeIx as IInstruction],
+    feePayer: feePayerAddress,
+    rpc,
+  });
 
-  const messageV0 = new TransactionMessage({
-    payerKey: feePayerPublicKey,
-    recentBlockhash: blockhash,
-    instructions: [closeIx],
-  }).compileToV0Message();
-
-  const transaction = new VersionedTransaction(messageV0);
-  const serializedMessage = transaction.message.serialize();
-
-  const txId = await signAndBroadcastDualSigner(
-    transaction,
-    serializedMessage,
-    userDestination,
-  );
+  const txId = await signAndBroadcastDualSigner(compiledTx, userDestination);
 
   logger.info(`wSOL unwrap confirmed: ${txId}`);
   return txId;
@@ -85,17 +72,17 @@ async function unwrapWsol(
  * Transfer native SOL from the user agent to a Defuse deposit address.
  */
 async function transferSolToDefuse(
-  userAgentPublicKey: PublicKey,
-  feePayerPublicKey: PublicKey,
+  userAgentAddress: Address,
+  feePayerAddress: Address,
   depositAddress: string,
   lamports: bigint,
-  connection: Connection,
+  rpc: SolanaRpc,
   userDestination: string,
   logger: Logger,
   dryRun: boolean,
 ): Promise<string> {
   logger.info(`Transferring SOL to Defuse deposit`, {
-    from: userAgentPublicKey.toBase58(),
+    from: userAgentAddress,
     to: depositAddress,
     lamports: lamports.toString(),
   });
@@ -104,28 +91,19 @@ async function transferSolToDefuse(
     return `dry-run-sol-transfer`;
   }
 
-  const transferIx = SystemProgram.transfer({
-    fromPubkey: userAgentPublicKey,
-    toPubkey: new PublicKey(depositAddress),
-    lamports,
+  const transferIx = getTransferSolInstruction({
+    source: createDummySigner(userAgentAddress),
+    destination: address(depositAddress),
+    amount: lamports,
   });
 
-  const { blockhash } = await connection.getLatestBlockhash();
+  const compiledTx = await buildAndCompileTransaction({
+    instructions: [transferIx as IInstruction],
+    feePayer: feePayerAddress,
+    rpc,
+  });
 
-  const messageV0 = new TransactionMessage({
-    payerKey: feePayerPublicKey,
-    recentBlockhash: blockhash,
-    instructions: [transferIx],
-  }).compileToV0Message();
-
-  const transaction = new VersionedTransaction(messageV0);
-  const serializedMessage = transaction.message.serialize();
-
-  const txId = await signAndBroadcastDualSigner(
-    transaction,
-    serializedMessage,
-    userDestination,
-  );
+  const txId = await signAndBroadcastDualSigner(compiledTx, userDestination);
 
   logger.info(`SOL transfer to Defuse confirmed: ${txId}`);
   return txId;
@@ -161,38 +139,33 @@ const solBridgeOutFlow: FlowDefinition<SolBridgeOutMetadata> = {
     const meta = intent.metadata;
 
     // Derive agent keys
-    const feePayerPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
-    const userAgentPublicKey = await deriveAgentPublicKey(
+    const feePayerAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
+    const userAgentAddress = await deriveAgentPublicKey(
       SOLANA_DEFAULT_PATH,
       intent.userDestination,
     );
 
-    const connection = getSolanaConnection();
+    const rpc = getSolanaRpc();
 
-    if (config.dryRunSwaps) {
-      return {
-        txId: `dry-run-sol-bridge-out-${intent.intentId}`,
-        bridgeTxId: `dry-run-bridge-${intent.intentId}`,
-        intentsDepositAddress: "dry-run-deposit-address",
-      };
-    }
+    const dry = dryRunResult("sol-bridge-out", intent.intentId, config, { bridgeBack: true });
+    if (dry) return dry;
 
     // Step 1: Close wSOL ATA to unwrap wSOL → native SOL
     const unwrapTxId = await unwrapWsol(
-      userAgentPublicKey,
-      feePayerPublicKey,
-      connection,
+      userAgentAddress,
+      feePayerAddress,
+      rpc,
       intent.userDestination,
       logger,
       false,
     );
 
     // Step 2: Check agent SOL balance to determine how much to bridge
-    const balance = await connection.getBalance(userAgentPublicKey);
+    const { value: balance } = await rpc.getBalance(userAgentAddress).send();
     // Reserve some SOL for future rent/fees (0.005 SOL)
     const RENT_RESERVE = BigInt(5_000_000);
-    const bridgeAmount = BigInt(balance) > RENT_RESERVE
-      ? BigInt(balance) - RENT_RESERVE
+    const bridgeAmount = balance > RENT_RESERVE
+      ? balance - RENT_RESERVE
       : BigInt(0);
 
     if (bridgeAmount <= BigInt(0)) {
@@ -218,18 +191,18 @@ const solBridgeOutFlow: FlowDefinition<SolBridgeOutMetadata> = {
       },
       originAsset,
       bridgeAmount.toString(),
-      userAgentPublicKey.toBase58(), // refund to the agent if bridge fails
+      userAgentAddress, // refund to the agent if bridge fails
     );
 
     const { depositAddress } = await getIntentsQuote(quoteRequest, config);
 
     // Step 4: Transfer native SOL to Defuse deposit address
     const bridgeTxId = await transferSolToDefuse(
-      userAgentPublicKey,
-      feePayerPublicKey,
+      userAgentAddress,
+      feePayerAddress,
       depositAddress,
       bridgeAmount,
-      connection,
+      rpc,
       intent.userDestination,
       logger,
       false,

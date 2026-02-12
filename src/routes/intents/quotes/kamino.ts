@@ -1,36 +1,27 @@
-import type { Context } from "hono";
-import { IntentChain } from "../../../queue/types";
 import { flowCatalog } from "../../../queue/flowCatalog";
 import { deriveAgentPublicKey } from "../../../utils/solana";
-import type { QuoteRequestBody, IntentsQuoteResponse } from "../types";
 import {
   buildAutoEnqueueIntent,
-  fetchDefuseQuote,
-  extractQuoteAmount,
+  fetchAndExtractQuote,
   generateQuoteId,
   tryAutoEnqueue,
   buildQuoteResponse,
+  type QuoteContext,
 } from "../helpers";
 import { createLogger } from "../../../utils/logger";
 import { getIntentsApiBase } from "../../../infra/intentsApi";
-import { AppError } from "../../../errors/appError";
 
 const log = createLogger("intents/quotes/kamino");
 
 export async function handleKaminoDepositQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  defuseQuoteFields: Record<string, unknown>,
-  isDryRun: boolean,
+  ctx: QuoteContext,
   kaminoDeposit: { marketAddress: string; mintAddress: string },
-  sourceChain: IntentChain | undefined,
-  userDestination: string | undefined,
-  metadata: Record<string, unknown> | undefined,
 ) {
+  const { c, payload, defuseQuoteFields, isDryRun, sourceChain, userDestination, metadata } = ctx;
   let agentSolanaAddress: string | undefined;
   if (userDestination) {
     const agentPubkey = await deriveAgentPublicKey(undefined, userDestination);
-    agentSolanaAddress = agentPubkey.toBase58();
+    agentSolanaAddress = agentPubkey;
   }
 
   const directQuoteRequest = {
@@ -54,20 +45,10 @@ export async function handleKaminoDepositQuote(
     kaminoMint: kaminoDeposit.mintAddress,
   });
 
-  let intentsQuote: IntentsQuoteResponse;
-  try {
-    intentsQuote = await fetchDefuseQuote(directQuoteRequest);
-  } catch (err) {
-    log.error("Kamino deposit: intents quote failed", { err: String(err) });
-    throw new AppError("upstream_error", (err as Error).message, { cause: err });
-  }
-
-  const baseQuote = intentsQuote.quote || {};
-  const amountResult = extractQuoteAmount(baseQuote);
-  if ("error" in amountResult) {
-    throw new AppError("upstream_error", amountResult.error);
-  }
-  const amountOut = amountResult.amount;
+  const { intentsQuote, baseQuote, amountOut } = await fetchAndExtractQuote(
+    directQuoteRequest,
+    "Kamino deposit",
+  );
 
   const quoteId = generateQuoteId(baseQuote, "shade-kamino");
 

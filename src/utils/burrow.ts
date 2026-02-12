@@ -1,4 +1,5 @@
 import { isTestnet } from "../config";
+import { RHEA_SDK_BASE_URL } from "../constants";
 import { nearViewCall, getFtMetadata, FtMetadata } from "./nearRpc";
 import { createLogger } from "./logger";
 
@@ -136,8 +137,6 @@ export interface BurrowPriceData {
   }>;
 }
 
-// Rhea Finance SDK base URL
-const RHEA_SDK_BASE_URL = "https://lendingsdk.rhea.finance";
 
 interface RheaSdkResponse {
   code: string;

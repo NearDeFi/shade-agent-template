@@ -3,7 +3,7 @@ import { setStatus, IntentStatus } from "../state/status";
 import type { IntentState } from "../state/status";
 import { MetricsCollector } from "./metrics";
 import { createLogger } from "../utils/logger";
-import type { AppConfig, FlowContext, Logger } from "./types";
+import type { AppConfig, FlowContext, FlowResult, Logger } from "./types";
 
 const defaultLogger = createLogger("flow");
 
@@ -90,6 +90,33 @@ export function createMockFlowContext(
     setStatus: overrides?.setStatus ?? (async () => {}),
     metrics: mockMetrics,
   };
+}
+
+// ─── Dry-Run Helper ─────────────────────────────────────────────────────────────
+
+/**
+ * Build a dry-run result if dry-run mode is enabled.
+ * Returns null if dry-run is NOT enabled (caller should continue with real execution).
+ */
+export function dryRunResult(
+  label: string,
+  intentId: string,
+  config: AppConfig,
+  opts?: { bridgeBack?: boolean; intentsDepositAddress?: string; swappedAmount?: string },
+): FlowResult | null {
+  if (!config.dryRunSwaps) return null;
+  const result: FlowResult = { txId: `dry-run-${label}-${intentId}` };
+  if (opts?.bridgeBack) {
+    result.bridgeTxId = `dry-run-bridge-${intentId}`;
+    result.intentsDepositAddress = opts.intentsDepositAddress ?? "dry-run-deposit-address";
+  }
+  if (opts?.swappedAmount) {
+    result.swappedAmount = opts.swappedAmount;
+  }
+  if (opts?.intentsDepositAddress && !opts?.bridgeBack) {
+    result.intentsDepositAddress = opts.intentsDepositAddress;
+  }
+  return result;
 }
 
 // ─── Debug Logging Helpers ──────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 import type { Context } from "hono";
 import type { QuoteRequestBody } from "./types";
+import { AppError } from "../../errors/appError";
 import { detectEvmChainFromAsset } from "../../utils/evmChains";
+import type { QuoteContext } from "./helpers";
 import { handleSwapQuote } from "./quotes/swap";
 import { handleKaminoDepositQuote } from "./quotes/kamino";
 import {
@@ -10,6 +12,8 @@ import {
 import {
   handleSellQuote,
   handleNearSellQuote,
+  type SellParams,
+  type NearSellParams,
 } from "./quotes/sell";
 import { handleEvmSwapQuote } from "./quotes/evm";
 import {
@@ -21,19 +25,48 @@ import {
   handleMorphoWithdrawQuote,
 } from "./quotes/morpho";
 
-interface QuoteDispatchContext {
-  c: Context;
-  payload: QuoteRequestBody;
-  isDryRun: boolean;
-  sourceChain: QuoteRequestBody["sourceChain"];
-  userDestination: QuoteRequestBody["userDestination"];
-  metadata: QuoteRequestBody["metadata"];
-  defuseQuoteFields: Record<string, unknown>;
-  evmChain: ReturnType<typeof detectEvmChainFromAsset>;
-}
+type QuoteMode =
+  | "burrowDeposit"
+  | "burrowWithdraw"
+  | "solanaSell"
+  | "nearSell"
+  | "aaveDeposit"
+  | "aaveWithdraw"
+  | "morphoDeposit"
+  | "morphoWithdraw"
+  | "kaminoDeposit"
+  | "evmSwap"
+  | "swap";
 
-interface QuoteDispatchRoute {
-  run: (ctx: QuoteDispatchContext) => Promise<Response | null>;
+function resolveQuoteMode(payload: QuoteRequestBody, evmChain: ReturnType<typeof detectEvmChainFromAsset>): QuoteMode {
+  const modeCandidates: QuoteMode[] = [];
+
+  if (payload.burrowDeposit) modeCandidates.push("burrowDeposit");
+  if (payload.burrowWithdraw) modeCandidates.push("burrowWithdraw");
+  if (payload.userSourceAddress && payload.sellDestinationChain) modeCandidates.push("solanaSell");
+  if (payload.userNearAddress && payload.sellDestinationChain) modeCandidates.push("nearSell");
+  if (payload.aaveDeposit) modeCandidates.push("aaveDeposit");
+  if (payload.aaveWithdraw) modeCandidates.push("aaveWithdraw");
+  if (payload.morphoDeposit) modeCandidates.push("morphoDeposit");
+  if (payload.morphoWithdraw) modeCandidates.push("morphoWithdraw");
+  if (payload.kaminoDeposit) modeCandidates.push("kaminoDeposit");
+
+  if (modeCandidates.length > 1) {
+    throw new AppError(
+      "invalid_request",
+      `Conflicting quote modes in request: ${modeCandidates.join(", ")}`,
+    );
+  }
+
+  if (modeCandidates.length === 1) {
+    return modeCandidates[0];
+  }
+
+  if (evmChain) {
+    return "evmSwap";
+  }
+
+  return "swap";
 }
 
 export async function dispatchIntentQuote(
@@ -41,6 +74,9 @@ export async function dispatchIntentQuote(
   payload: QuoteRequestBody,
 ): Promise<Response> {
   const isDryRun = payload.dry !== false;
+  const evmChain = detectEvmChainFromAsset(payload.destinationAsset);
+  const mode = resolveQuoteMode(payload, evmChain);
+
   const {
     sourceChain,
     userDestination,
@@ -48,7 +84,6 @@ export async function dispatchIntentQuote(
     kaminoDeposit,
     burrowDeposit,
     burrowWithdraw,
-    aaveDeposit,
     aaveWithdraw,
     morphoDeposit,
     morphoWithdraw,
@@ -60,191 +95,49 @@ export async function dispatchIntentQuote(
     ...defuseQuoteFields
   } = payload;
 
-  const dispatchCtx: QuoteDispatchContext = {
+  const ctx: QuoteContext = {
     c,
     payload,
+    defuseQuoteFields,
     isDryRun,
     sourceChain,
     userDestination,
     metadata,
-    defuseQuoteFields,
-    evmChain: detectEvmChainFromAsset(payload.destinationAsset),
   };
 
-  const routes: QuoteDispatchRoute[] = [
-    {
-      run: async (ctx) => {
-        if (!burrowDeposit) return null;
-        return handleBurrowDepositQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.defuseQuoteFields,
-          ctx.isDryRun,
-          burrowDeposit,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!burrowWithdraw) return null;
-        return handleBurrowWithdrawQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.defuseQuoteFields,
-          ctx.isDryRun,
-          burrowWithdraw,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!userSourceAddress || !sellDestinationChain) return null;
-        return handleSellQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.isDryRun,
-          userSourceAddress,
-          sellDestinationChain,
-          sellDestinationAddress,
-          sellDestinationAsset,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!userNearAddress || !sellDestinationChain) return null;
-        return handleNearSellQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.isDryRun,
-          userNearAddress,
-          sellDestinationChain,
-          sellDestinationAddress,
-          sellDestinationAsset,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!aaveDeposit) return null;
-        return handleAaveDepositQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.defuseQuoteFields,
-          ctx.isDryRun,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!aaveWithdraw) return null;
-        return handleAaveWithdrawQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.isDryRun,
-          aaveWithdraw,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!morphoDeposit) return null;
-        return handleMorphoDepositQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.defuseQuoteFields,
-          ctx.isDryRun,
-          morphoDeposit,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!morphoWithdraw) return null;
-        return handleMorphoWithdrawQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.isDryRun,
-          morphoWithdraw,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!ctx.evmChain) return null;
-        return handleEvmSwapQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.defuseQuoteFields,
-          ctx.isDryRun,
-          ctx.evmChain,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => {
-        if (!kaminoDeposit) return null;
-        return handleKaminoDepositQuote(
-          ctx.c,
-          ctx.payload,
-          ctx.defuseQuoteFields,
-          ctx.isDryRun,
-          kaminoDeposit,
-          ctx.sourceChain,
-          ctx.userDestination,
-          ctx.metadata,
-        );
-      },
-    },
-    {
-      run: async (ctx) => handleSwapQuote(
-        ctx.c,
-        ctx.payload,
-        ctx.defuseQuoteFields,
-        ctx.isDryRun,
-        ctx.sourceChain,
-        ctx.userDestination,
-        ctx.metadata,
-      ),
-    },
-  ];
-
-  for (const route of routes) {
-    const response = await route.run(dispatchCtx);
-    if (response) {
-      return response;
-    }
+  switch (mode) {
+    case "burrowDeposit":
+      return handleBurrowDepositQuote(ctx, burrowDeposit!);
+    case "burrowWithdraw":
+      return handleBurrowWithdrawQuote(ctx, burrowWithdraw!);
+    case "solanaSell":
+      return handleSellQuote(ctx, {
+        userSourceAddress: userSourceAddress!,
+        sellDestinationChain: sellDestinationChain!,
+        sellDestinationAddress,
+        sellDestinationAsset,
+      });
+    case "nearSell":
+      return handleNearSellQuote(ctx, {
+        userNearAddress: userNearAddress!,
+        sellDestinationChain: sellDestinationChain!,
+        sellDestinationAddress,
+        sellDestinationAsset,
+      });
+    case "aaveDeposit":
+      return handleAaveDepositQuote(ctx);
+    case "aaveWithdraw":
+      return handleAaveWithdrawQuote(ctx, aaveWithdraw!);
+    case "morphoDeposit":
+      return handleMorphoDepositQuote(ctx, morphoDeposit!);
+    case "morphoWithdraw":
+      return handleMorphoWithdrawQuote(ctx, morphoWithdraw!);
+    case "kaminoDeposit":
+      return handleKaminoDepositQuote(ctx, kaminoDeposit!);
+    case "evmSwap":
+      return handleEvmSwapQuote(ctx, evmChain!);
+    case "swap":
+    default:
+      return handleSwapQuote(ctx);
   }
-
-  // routes include a fallback, but keep a hard guard for future edits.
-  return handleSwapQuote(
-    c,
-    payload,
-    defuseQuoteFields,
-    isDryRun,
-    sourceChain,
-    userDestination,
-    metadata,
-  );
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import solAccountApp from "./solAccount";
-import { PublicKey } from "@solana/web3.js";
 
 const { deriveAgentPublicKeyMock, getBalanceMock } = vi.hoisted(() => ({
   deriveAgentPublicKeyMock: vi.fn(),
@@ -26,8 +25,8 @@ describe("solAccount route", () => {
 
   describe("GET /", () => {
     it("returns account info with default path", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      // deriveAgentPublicKey now returns Address (plain string)
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       getBalanceMock.mockResolvedValue({
         balance: BigInt(5000000000), // 5 SOL in lamports
         decimals: 9,
@@ -45,8 +44,7 @@ describe("solAccount route", () => {
     });
 
     it("accepts custom path parameter", async () => {
-      const mockPubkey = new PublicKey("4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk");
       getBalanceMock.mockResolvedValue({
         balance: BigInt(1000000000),
         decimals: 9,
@@ -61,8 +59,7 @@ describe("solAccount route", () => {
     });
 
     it("returns correct balance calculation for fractional SOL", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       getBalanceMock.mockResolvedValue({
         balance: BigInt(1500000000), // 1.5 SOL
         decimals: 9,
@@ -77,8 +74,7 @@ describe("solAccount route", () => {
     });
 
     it("handles zero balance", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       getBalanceMock.mockResolvedValue({
         balance: BigInt(0),
         decimals: 9,
@@ -103,8 +99,7 @@ describe("solAccount route", () => {
     });
 
     it("returns 500 on getBalance error", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       getBalanceMock.mockRejectedValue(new Error("RPC connection failed"));
 
       const res = await app.request("/api/sol-account");
@@ -115,8 +110,7 @@ describe("solAccount route", () => {
     });
 
     it("handles large balance values", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       // 1 billion SOL in lamports
       getBalanceMock.mockResolvedValue({
         balance: BigInt("1000000000000000000"),

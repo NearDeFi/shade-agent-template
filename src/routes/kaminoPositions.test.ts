@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import kaminoPositionsApp from "./kaminoPositions";
-import { PublicKey } from "@solana/web3.js";
 
 const { deriveAgentPublicKeyMock, KaminoMarketMock } = vi.hoisted(() => ({
   deriveAgentPublicKeyMock: vi.fn(),
@@ -35,8 +34,8 @@ describe("kaminoPositions route", () => {
 
   describe("GET /", () => {
     it("returns user address and instructions with userDestination", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      // deriveAgentPublicKey now returns Address (plain string)
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
 
       const res = await app.request("/api/kamino-positions?userDestination=user.near");
 
@@ -47,8 +46,7 @@ describe("kaminoPositions route", () => {
     });
 
     it("derives address from userDestination when provided", async () => {
-      const mockPubkey = new PublicKey("4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("4cJgUe8TKEkJtqWSXoe4fAhN74LW2TbK4DGVkfdxUJZk");
 
       const res = await app.request(
         "/api/kamino-positions?userDestination=user.near"
@@ -76,8 +74,7 @@ describe("kaminoPositions route", () => {
     const marketAddress = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF";
 
     it("returns positions for valid market and user", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
 
       const mockReserve = {
         getLiquidityMint: () => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -122,8 +119,7 @@ describe("kaminoPositions route", () => {
     });
 
     it("returns 404 when market not found", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       KaminoMarketMock.load.mockResolvedValue(null);
 
       const res = await app.request(
@@ -136,8 +132,7 @@ describe("kaminoPositions route", () => {
     });
 
     it("returns empty obligations when user has no positions", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
 
       KaminoMarketMock.load.mockResolvedValue({
         getAllUserObligations: vi.fn().mockResolvedValue([]),
@@ -154,8 +149,7 @@ describe("kaminoPositions route", () => {
     });
 
     it("returns 500 on market load error", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
       KaminoMarketMock.load.mockRejectedValue(new Error("RPC timeout"));
 
       const res = await app.request(
@@ -168,8 +162,7 @@ describe("kaminoPositions route", () => {
     });
 
     it("handles positions with both deposits and borrows", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
 
       const mockReserve = {
         getLiquidityMint: () => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -223,8 +216,7 @@ describe("kaminoPositions route", () => {
     });
 
     it("handles unknown reserve gracefully", async () => {
-      const mockPubkey = new PublicKey("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
-      deriveAgentPublicKeyMock.mockResolvedValue(mockPubkey);
+      deriveAgentPublicKeyMock.mockResolvedValue("8CKsW6cVfaQnBxpqtKfxDxZ8sM3E7DbpDZEPXx1cBa9u");
 
       const mockObligation = {
         obligationAddress: "ObligationAddr111111111111111111111111111111",

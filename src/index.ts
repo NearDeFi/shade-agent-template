@@ -84,7 +84,7 @@ log.info(`App is running on port ${port}`);
 const server = serve({ fetch: app.fetch, port });
 const backgroundTasks: BackgroundTaskHandle[] = [];
 
-async function shutdown(signal: string) {
+async function shutdown(signal: string, exitCode = 0) {
   log.info(`Received ${signal}, shutting down`);
 
   const stoppedTasks = await Promise.allSettled(
@@ -109,7 +109,7 @@ async function shutdown(signal: string) {
     closable.close(() => resolve());
   });
 
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 let isShuttingDown = false;
@@ -125,6 +125,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 if (config.enableQueue) {
+  const startupErrors: string[] = [];
   try {
     backgroundTasks.push(
       startQueueConsumer({
@@ -133,21 +134,34 @@ if (config.enableQueue) {
       }),
     );
   } catch (err) {
-    log.error("Failed to start queue consumer", { err: String(err) });
+    const message = String(err);
+    startupErrors.push(`queue consumer: ${message}`);
+    log.error("Failed to start queue consumer", { err: message });
   }
 
   // Start the intents poller to monitor cross-chain swaps
   try {
     backgroundTasks.push(startIntentsPoller());
   } catch (err) {
-    log.error("Failed to start intents poller", { err: String(err) });
+    const message = String(err);
+    startupErrors.push(`intents poller: ${message}`);
+    log.error("Failed to start intents poller", { err: message });
   }
 
   // Start the order poller to monitor prices for conditional orders
   try {
     backgroundTasks.push(startOrderPoller());
   } catch (err) {
-    log.error("Failed to start order poller", { err: String(err) });
+    const message = String(err);
+    startupErrors.push(`order poller: ${message}`);
+    log.error("Failed to start order poller", { err: message });
+  }
+
+  if (startupErrors.length > 0) {
+    log.error("Startup failed: background tasks did not initialize", {
+      failures: startupErrors,
+    });
+    void shutdown("STARTUP_FAILURE", 1);
   }
 } else {
   log.info("Queue consumer disabled (enable via ENABLE_QUEUE=true)");

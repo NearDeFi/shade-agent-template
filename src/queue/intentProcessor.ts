@@ -1,4 +1,5 @@
 import type { FlowCatalog } from "../flows/catalog";
+import type { Logger } from "../types/logger";
 import type { AppConfig, FlowContext, FlowResult } from "../flows/types";
 import { emitFlowMetrics, categorizeError } from "../flows/metrics";
 import type { IntentStatus } from "../state/status";
@@ -30,11 +31,7 @@ export interface IntentProcessorDeps {
   }) => FlowContext;
   queue: QueueDeadLetterPort;
   delay: (ms: number) => Promise<void>;
-  logger?: {
-    info: (message: string, data?: Record<string, unknown>) => void;
-    warn: (message: string, data?: Record<string, unknown>) => void;
-    error: (message: string, data?: Record<string, unknown>) => void;
-  };
+  logger?: Pick<Logger, "info" | "warn" | "error">;
 }
 
 export interface IntentProcessor {

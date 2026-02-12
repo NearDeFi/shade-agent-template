@@ -7,19 +7,10 @@ import {
   signAndBroadcastEvmTx,
   getEvmTokenBalance,
 } from "../utils/evmChains";
-import { ensureErc20Allowance } from "../utils/evmLending";
+import { ensureErc20Allowance, AAVE_POOL_ADDRESSES, AAVE_SUPPORTED_CHAINS } from "../utils/evmLending";
 import { requireUserDestination } from "../utils/authorization";
+import { dryRunResult } from "./context";
 import type { FlowDefinition, FlowResult } from "./types";
-
-// ─── Aave V3 Pool Addresses ────────────────────────────────────────────────────
-
-const AAVE_POOL_ADDRESSES: Partial<Record<EvmChainName, string>> = {
-  ethereum: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
-  base: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
-  arbitrum: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
-};
-
-const AAVE_SUPPORTED_CHAINS: EvmChainName[] = ["ethereum", "base", "arbitrum"];
 
 // ─── Minimal ABI ────────────────────────────────────────────────────────────────
 
@@ -69,9 +60,8 @@ const aaveDepositFlow: FlowDefinition<AaveDepositMetadata> = {
     const { config: appConfig, logger } = ctx;
     const chain = intent.destinationChain as EvmChainName;
 
-    if (appConfig.dryRunSwaps) {
-      return { txId: `dry-run-aave-deposit-${intent.intentId}` };
-    }
+    const dry = dryRunResult("aave-deposit", intent.intentId, appConfig);
+    if (dry) return dry;
 
     // 1. Derive agent EVM address
     const agentAddress = await deriveEvmAgentAddress(intent.userDestination);

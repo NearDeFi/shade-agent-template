@@ -18,6 +18,10 @@ vi.mock("../utils/near", () => ({
   ONE_YOCTO: BigInt(1),
 }));
 
+vi.mock("../utils/nearRpc", () => ({
+  getFtBalance: vi.fn(),
+}));
+
 vi.mock("../utils/intents", () => ({
   getIntentsQuote: vi.fn(),
   createBridgeBackQuoteRequest: vi.fn(),
@@ -190,6 +194,184 @@ describe("burrowWithdrawFlow", () => {
         ctx,
         "Burrow withdraw"
       );
+    });
+  });
+
+  describe("execute", () => {
+    const withdrawIntent = createBaseIntent({
+      metadata: {
+        action: "burrow-withdraw",
+        tokenId: "wrap.near",
+      },
+    }) as ValidatedIntent & { metadata: BurrowWithdrawMetadata };
+
+    beforeEach(async () => {
+      const { deriveNearAgentAccount, ensureNearAccountFunded, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildWithdrawTransaction } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockReset();
+      vi.mocked(ensureNearAccountFunded).mockReset();
+      vi.mocked(executeNearFunctionCall).mockReset();
+      vi.mocked(getAssetsPagedDetailed).mockReset();
+      vi.mocked(buildWithdrawTransaction).mockReset();
+    });
+
+    it("returns dry-run result when dryRunSwaps is true", async () => {
+      const ctx = createMockFlowContext("test-intent-1", {
+        config: { dryRunSwaps: true } as any,
+      });
+      const result = await burrowWithdrawFlow.execute(withdrawIntent, ctx);
+      expect(result.txId).toContain("dry-run");
+    });
+
+    it("throws when userDestination is missing", async () => {
+      const intentNoUser = createBaseIntent({
+        userDestination: undefined as any,
+        metadata: {
+          action: "burrow-withdraw",
+          tokenId: "wrap.near",
+        },
+      }) as ValidatedIntent & { metadata: BurrowWithdrawMetadata };
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowWithdrawFlow.execute(intentNoUser, ctx))
+        .rejects.toThrow("userDestination");
+    });
+
+    it("throws when token is not supported by Burrow", async () => {
+      const { deriveNearAgentAccount } = await import("../utils/near");
+      const { getAssetsPagedDetailed } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([]);
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowWithdrawFlow.execute(withdrawIntent, ctx))
+        .rejects.toThrow("Token wrap.near is not supported by Burrow");
+    });
+
+    it("throws when token cannot be withdrawn", async () => {
+      const { deriveNearAgentAccount } = await import("../utils/near");
+      const { getAssetsPagedDetailed } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_withdraw: false } },
+      ] as any);
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowWithdrawFlow.execute(withdrawIntent, ctx))
+        .rejects.toThrow("Token wrap.near cannot be withdrawn from Burrow");
+    });
+
+    it("executes withdraw successfully", async () => {
+      const { deriveNearAgentAccount, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildWithdrawTransaction } = await import("../utils/burrow");
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_withdraw: true } },
+      ] as any);
+      vi.mocked(buildWithdrawTransaction).mockResolvedValue({
+        contract_id: "contract.burrow.near",
+        method_name: "withdraw",
+        args: {},
+      } as any);
+      vi.mocked(executeNearFunctionCall).mockResolvedValue("withdraw-tx-123");
+
+      const ctx = createMockFlowContext("test-intent-1");
+      const result = await burrowWithdrawFlow.execute(withdrawIntent, ctx);
+
+      expect(result.txId).toBe("withdraw-tx-123");
+    });
+
+    it("executes bridgeBack when configured", async () => {
+      const { deriveNearAgentAccount, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildWithdrawTransaction } = await import("../utils/burrow");
+      const { getFtBalance } = await import("../utils/nearRpc");
+      const { getIntentsQuote, createBridgeBackQuoteRequest } = await import("../utils/intents");
+      const { getDefuseAssetId } = await import("../utils/tokenMappings");
+
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_withdraw: true } },
+      ] as any);
+      vi.mocked(buildWithdrawTransaction).mockResolvedValue({
+        contract_id: "contract.burrow.near",
+        method_name: "withdraw",
+        args: {},
+      } as any);
+      vi.mocked(executeNearFunctionCall)
+        .mockResolvedValueOnce("withdraw-tx")
+        .mockResolvedValueOnce("bridge-tx");
+      vi.mocked(getFtBalance).mockResolvedValue("50000");
+      vi.mocked(getDefuseAssetId).mockReturnValue("nep141:wrap.near");
+      vi.mocked(createBridgeBackQuoteRequest).mockReturnValue({} as any);
+      vi.mocked(getIntentsQuote).mockResolvedValue({ depositAddress: "deposit-addr" } as any);
+
+      const bridgeIntent = createBaseIntent({
+        metadata: {
+          action: "burrow-withdraw",
+          tokenId: "wrap.near",
+          bridgeBack: {
+            destinationChain: "ethereum",
+            destinationAddress: "0x123",
+            destinationAsset: "eth:usdc",
+          },
+        },
+      }) as ValidatedIntent & { metadata: BurrowWithdrawMetadata };
+
+      const ctx = createMockFlowContext("test-intent-1");
+      const result = await burrowWithdrawFlow.execute(bridgeIntent, ctx);
+
+      expect(result.txId).toBe("withdraw-tx");
+      expect(result.bridgeTxId).toBe("bridge-tx");
+      expect(result.intentsDepositAddress).toBe("deposit-addr");
+    });
+
+    it("throws when zero balance after withdrawal for bridgeBack", async () => {
+      const { deriveNearAgentAccount, executeNearFunctionCall } = await import("../utils/near");
+      const { getAssetsPagedDetailed, buildWithdrawTransaction } = await import("../utils/burrow");
+      const { getFtBalance } = await import("../utils/nearRpc");
+
+      vi.mocked(deriveNearAgentAccount).mockResolvedValue({
+        accountId: "agent.near",
+        derivationPath: "near-1,user.near",
+      } as any);
+      vi.mocked(getAssetsPagedDetailed).mockResolvedValue([
+        { token_id: "wrap.near", config: { can_withdraw: true } },
+      ] as any);
+      vi.mocked(buildWithdrawTransaction).mockResolvedValue({
+        contract_id: "contract.burrow.near",
+        method_name: "withdraw",
+        args: {},
+      } as any);
+      vi.mocked(executeNearFunctionCall).mockResolvedValue("withdraw-tx");
+      vi.mocked(getFtBalance).mockResolvedValue("0");
+
+      const bridgeIntent = createBaseIntent({
+        metadata: {
+          action: "burrow-withdraw",
+          tokenId: "wrap.near",
+          bridgeBack: {
+            destinationChain: "ethereum",
+            destinationAddress: "0x123",
+            destinationAsset: "eth:usdc",
+          },
+        },
+      }) as ValidatedIntent & { metadata: BurrowWithdrawMetadata };
+
+      const ctx = createMockFlowContext("test-intent-1");
+      await expect(burrowWithdrawFlow.execute(bridgeIntent, ctx))
+        .rejects.toThrow("No tokens available to bridge back");
     });
   });
 });

@@ -1,6 +1,6 @@
 import type { IntentValidator } from "../queue/validation";
 import type { IntentMessage } from "../queue/types";
-import { setStatus } from "../state/status";
+import { enqueueIntentWithStatus } from "../state/status";
 import {
   createIntentSigningMessage,
   isNearSignature,
@@ -12,10 +12,13 @@ import {
 } from "../utils/solanaSignature";
 import { createLogger } from "../utils/logger";
 import { AppError } from "../errors/appError";
-import { queueClient } from "../queue/client";
 import { intentValidator as sharedIntentValidator } from "../queue/flowCatalog";
 
 const log = createLogger("intents/submitService");
+
+interface SubmitIntentDeps {
+  enqueueIntentWithStatusFn?: typeof enqueueIntentWithStatus;
+}
 
 function requireVerificationProof(payload: IntentMessage) {
   const hasDepositProof = payload.originTxHash && payload.intentsDepositAddress;
@@ -115,6 +118,7 @@ function logDepositProof(payload: IntentMessage) {
 export async function submitIntentForProcessing(
   payload: IntentMessage,
   validateIntentFn: IntentValidator = sharedIntentValidator,
+  deps: SubmitIntentDeps = {},
 ) {
   requireVerificationProof(payload);
   verifyIntentSignature(payload);
@@ -128,8 +132,10 @@ export async function submitIntentForProcessing(
   }
 
   try {
-    await queueClient.enqueueIntent(validatedIntent);
-    await setStatus(validatedIntent.intentId, { state: "pending" });
+    await (deps.enqueueIntentWithStatusFn ?? enqueueIntentWithStatus)(
+      validatedIntent,
+      { state: "pending" },
+    );
   } catch (err) {
     log.error("Failed to enqueue intent", { err: String(err) });
     throw new AppError("internal_error", "Failed to enqueue intent", { cause: err });

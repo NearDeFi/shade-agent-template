@@ -1,4 +1,8 @@
-import type { Context } from "hono";
+import { address } from "@solana/kit";
+import {
+  findAssociatedTokenPda,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import { IntentChain } from "../../../queue/types";
 import { config } from "../../../config";
 import { fetchWithRetry } from "../../../utils/http";
@@ -6,40 +10,43 @@ import { SOL_NATIVE_MINT, WRAP_NEAR_CONTRACT, extractSolanaMintAddress } from ".
 import { setStatus } from "../../../state/status";
 import {
   deriveAgentPublicKey,
-  getSolanaConnection,
+  getSolanaRpc,
   deserializeInstruction,
   getAddressLookupTableAccounts,
+  buildAndCompileTransaction,
 } from "../../../utils/solana";
+import { createDummySigner } from "../../../utils/chainSignature";
 import { deriveNearImplicitAccount, NEAR_DEFAULT_PATH } from "../../../utils/chainSignature";
 import {
   deriveNearAgentAccount,
   ensureNearAccountFunded,
 } from "../../../utils/near";
-import {
-  PublicKey,
-  TransactionMessage,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import {
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
-import type { QuoteRequestBody } from "../types";
+import type { QuoteContext } from "../helpers";
 import { createLogger } from "../../../utils/logger";
 import { AppError } from "../../../errors/appError";
 
 const log = createLogger("intents/quotes/sell");
 
+export interface SellParams {
+  userSourceAddress: string;
+  sellDestinationChain: string;
+  sellDestinationAddress?: string;
+  sellDestinationAsset?: string;
+}
+
+export interface NearSellParams {
+  userNearAddress: string;
+  sellDestinationChain: string;
+  sellDestinationAddress?: string;
+  sellDestinationAsset?: string;
+}
+
 export async function handleSellQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  isDryRun: boolean,
-  userSourceAddress: string,
-  sellDestinationChain: string,
-  sellDestinationAddress: string | undefined,
-  sellDestinationAsset: string | undefined,
+  ctx: QuoteContext,
+  sellParams: SellParams,
 ) {
+  const { c, payload, isDryRun } = ctx;
+  const { userSourceAddress, sellDestinationChain, sellDestinationAddress, sellDestinationAsset } = sellParams;
   if (!sellDestinationAddress) {
     throw new AppError("invalid_request", "sellDestinationAddress is required for sell quotes");
   }
@@ -49,15 +56,14 @@ export async function handleSellQuote(
 
   const inputMint = extractSolanaMintAddress(payload.originAsset);
 
-  const agentPubkey = await deriveAgentPublicKey(undefined, userSourceAddress);
-  const agentSolanaAddress = agentPubkey.toBase58();
+  const agentSolanaAddress = await deriveAgentPublicKey(undefined, userSourceAddress);
 
-  const agentWsolAta = getAssociatedTokenAddressSync(
-    NATIVE_MINT,
-    agentPubkey,
-    true,
-    TOKEN_PROGRAM_ID,
-  );
+  const nativeMintAddr = address("So11111111111111111111111111111111111111112");
+  const [agentWsolAta] = await findAssociatedTokenPda({
+    mint: nativeMintAddr,
+    owner: agentSolanaAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
 
   log.info("Sell quote: requesting Jupiter quote", {
     inputMint,
@@ -65,7 +71,7 @@ export async function handleSellQuote(
     amount: payload.amount,
     userSourceAddress,
     agentSolanaAddress,
-    agentWsolAta: agentWsolAta.toBase58(),
+    agentWsolAta,
     sellDestinationChain,
   });
 
@@ -99,7 +105,7 @@ export async function handleSellQuote(
       body: JSON.stringify({
         quoteResponse: jupiterQuote,
         userPublicKey: userSourceAddress,
-        destinationTokenAccount: agentWsolAta.toBase58(),
+        destinationTokenAccount: agentWsolAta,
         wrapAndUnwrapSol: false,
         dynamicComputeUnitLimit: true,
         computeUnitPriceMicroLamports: "auto",
@@ -144,21 +150,30 @@ export async function handleSellQuote(
     }
   }
 
-  const connection = getSolanaConnection();
-  const addressLookupTableAccounts = await getAddressLookupTableAccounts(
-    connection,
+  const rpc = getSolanaRpc();
+  const addressLookupTables = await getAddressLookupTableAccounts(
+    rpc,
     swapInstructions.addressLookupTableAddresses || [],
   );
 
-  const { blockhash } = await connection.getLatestBlockhash();
-  const messageV0 = new TransactionMessage({
-    payerKey: new PublicKey(userSourceAddress),
-    recentBlockhash: blockhash,
+  // Build an unsigned transaction for the user's wallet to sign.
+  // We use buildAndCompileTransaction with the user as fee payer.
+  const compiledTx = await buildAndCompileTransaction({
     instructions,
-  }).compileToV0Message(addressLookupTableAccounts);
+    feePayer: address(userSourceAddress),
+    rpc,
+    addressLookupTables,
+  });
 
-  const unsignedTx = new VersionedTransaction(messageV0);
-  const unsignedTxBase64 = Buffer.from(unsignedTx.serialize()).toString("base64");
+  // Serialize to wire format for wallet: [num_sigs (1 byte)] + [zero-filled signatures] + [message]
+  const sigAddresses = Object.keys(compiledTx.signatures);
+  const numSigs = sigAddresses.length;
+  const totalSigBytes = numSigs * 64;
+  const serialized = new Uint8Array(1 + totalSigBytes + compiledTx.messageBytes.length);
+  serialized[0] = numSigs;
+  // Signatures are left as zero-filled (unsigned)
+  serialized.set(compiledTx.messageBytes, 1 + totalSigBytes);
+  const unsignedTxBase64 = Buffer.from(serialized).toString("base64");
 
   const intentId = `shade-sell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -220,14 +235,11 @@ export async function handleSellQuote(
 }
 
 export async function handleNearSellQuote(
-  c: Context,
-  payload: QuoteRequestBody,
-  isDryRun: boolean,
-  userNearAddress: string,
-  sellDestinationChain: string,
-  sellDestinationAddress: string | undefined,
-  sellDestinationAsset: string | undefined,
+  ctx: QuoteContext,
+  nearSellParams: NearSellParams,
 ) {
+  const { c, payload, isDryRun } = ctx;
+  const { userNearAddress, sellDestinationChain, sellDestinationAddress, sellDestinationAsset } = nearSellParams;
   if (!sellDestinationAddress) {
     throw new AppError("invalid_request", "sellDestinationAddress is required for NEAR sell quotes");
   }

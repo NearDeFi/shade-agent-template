@@ -1,22 +1,64 @@
+import type { Context } from "hono";
 import {
   IntentMessage,
   IntentChain,
   type IntentMetadata,
 } from "../../queue/types";
 import { validateIntent } from "../../queue/validation";
-import { setStatus } from "../../state/status";
+import { enqueueIntentWithStatus } from "../../state/status";
 import { config } from "../../config";
 import {
   OneClickService,
 } from "@defuse-protocol/one-click-sdk-typescript";
 import { createLogger } from "../../utils/logger";
-import type { IntentsQuoteResponse } from "./types";
+import type { QuoteRequestBody, IntentsQuoteResponse } from "./types";
 import { ensureIntentsApiBase } from "../../infra/intentsApi";
-import { queueClient } from "../../queue/client";
 import { AppError } from "../../errors/appError";
 import type { FlowCatalog } from "../../flows/catalog";
 
 const log = createLogger("intents/helpers");
+
+// ─── QuoteContext ────────────────────────────────────────────────────────────
+
+/**
+ * Shared context passed to all quote handlers, eliminating loose parameter passing.
+ */
+export interface QuoteContext {
+  c: Context;
+  payload: QuoteRequestBody;
+  defuseQuoteFields: Record<string, unknown>;
+  isDryRun: boolean;
+  sourceChain?: IntentChain;
+  userDestination?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// ─── Quote Helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a Defuse/Intents quote and extract the output amount in one call.
+ * Wraps the common fetch → extract → validate pattern used by all quote handlers.
+ */
+export async function fetchAndExtractQuote(
+  quoteRequest: Record<string, unknown>,
+  logLabel: string,
+): Promise<{ intentsQuote: IntentsQuoteResponse; baseQuote: Record<string, any>; amountOut: string }> {
+  let intentsQuote: IntentsQuoteResponse;
+  try {
+    intentsQuote = await fetchDefuseQuote(quoteRequest);
+  } catch (err) {
+    log.error(`${logLabel}: intents quote failed`, { err: String(err) });
+    throw new AppError("upstream_error", (err as Error).message, { cause: err });
+  }
+
+  const baseQuote = intentsQuote.quote || {};
+  const amountResult = extractQuoteAmount(baseQuote);
+  if ("error" in amountResult) {
+    throw new AppError("upstream_error", amountResult.error);
+  }
+
+  return { intentsQuote, baseQuote, amountOut: amountResult.amount };
+}
 
 /**
  * Fetch a quote from the Defuse/Intents 1-Click API.
@@ -75,8 +117,7 @@ export async function autoEnqueueIntent(
   flowCatalog: FlowCatalog,
 ): Promise<void> {
   const validatedIntent = validateIntent(intentMessage, flowCatalog);
-  await queueClient.enqueueIntent(validatedIntent);
-  await setStatus(validatedIntent.intentId, { state: "pending" });
+  await enqueueIntentWithStatus(validatedIntent, { state: "pending" });
 }
 
 export interface BuildAutoEnqueueIntentParams {

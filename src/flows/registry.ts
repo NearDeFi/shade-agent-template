@@ -1,4 +1,5 @@
 import type { IntentChain, ValidatedIntent } from "../queue/types";
+import type { FlowAction } from "../types/actions";
 import type { FlowDefinition } from "./types";
 import type { FlowCatalog } from "./catalog";
 
@@ -41,7 +42,7 @@ export class FlowRegistry implements FlowCatalog {
    * @param action - The action string (e.g., "kamino-deposit")
    * @returns The flow definition or undefined
    */
-  get(action: string): AnyFlowDefinition | undefined {
+  get(action: FlowAction): AnyFlowDefinition | undefined {
     return this.flows.get(action);
   }
 
@@ -105,7 +106,7 @@ export class FlowRegistry implements FlowCatalog {
    * @param action - The action string
    * @returns true if registered
    */
-  has(action: string): boolean {
+  has(action: FlowAction): boolean {
     return this.flows.has(action);
   }
 

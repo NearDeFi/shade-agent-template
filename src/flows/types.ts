@@ -1,6 +1,8 @@
 import type { config } from "../config";
 import type { IntentChain, IntentMetadata, ValidatedIntent } from "../queue/types";
 import type { IntentState } from "../state/status";
+import type { FlowAction } from "../types/actions";
+import type { Logger } from "../types/logger";
 import type { MetricsCollector } from "./metrics";
 
 /**
@@ -8,15 +10,8 @@ import type { MetricsCollector } from "./metrics";
  */
 export type AppConfig = typeof config;
 
-/**
- * Logger interface for flow execution
- */
-export interface Logger {
-  info: (message: string, data?: Record<string, unknown>) => void;
-  warn: (message: string, data?: Record<string, unknown>) => void;
-  error: (message: string, data?: Record<string, unknown>) => void;
-  debug: (message: string, data?: Record<string, unknown>) => void;
-}
+// Re-export Logger from canonical location
+export type { Logger } from "../types/logger";
 
 /**
  * Context passed to flow execution functions
@@ -58,7 +53,7 @@ export interface FlowResult {
 export interface FlowDefinition<M extends IntentMetadata = IntentMetadata> {
   // ─── Identity ────────────────────────────────────────────────────────────────
   /** Unique action identifier (e.g., "kamino-deposit") */
-  action: string;
+  action: FlowAction;
   /** Human-readable name */
   name: string;
   /** Description of what this flow does */
@@ -123,3 +118,11 @@ export interface FlowDefinition<M extends IntentMetadata = IntentMetadata> {
  */
 export type FlowMetadata<F extends FlowDefinition> =
   F extends FlowDefinition<infer M> ? M : never;
+
+/**
+ * Result of a bridge-back operation (shared by Kamino and Burrow withdraw flows).
+ */
+export interface BridgeBackResult {
+  txId: string;
+  depositAddress: string;
+}

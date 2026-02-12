@@ -11,7 +11,7 @@ import {
   GAS_FOR_FT_TRANSFER_CALL,
   ONE_YOCTO,
 } from "../utils/near";
-import { logNearAddressInfo } from "./context";
+import { logNearAddressInfo, dryRunResult } from "./context";
 import { requireUserDestination } from "../utils/authorization";
 import type { FlowDefinition, FlowContext, FlowResult, AppConfig } from "./types";
 
@@ -57,14 +57,11 @@ const burrowDepositFlow: FlowDefinition<BurrowDepositMetadata> = {
     const { config, logger } = ctx;
     const meta = intent.metadata;
 
-    if (config.dryRunSwaps) {
-      const result: FlowResult = { txId: `dry-run-burrow-deposit-${intent.intentId}` };
-      if (meta.useIntents) {
-        result.intentsDepositAddress = "dry-run-deposit-address";
-        result.swappedAmount = intent.sourceAmount;
-      }
-      return result;
-    }
+    const dry = dryRunResult("burrow-deposit", intent.intentId, config, {
+      intentsDepositAddress: meta.useIntents ? "dry-run-deposit-address" : undefined,
+      swappedAmount: meta.useIntents ? intent.sourceAmount : undefined,
+    });
+    if (dry) return dry;
 
     const depositAmount = intent.intermediateAmount || intent.sourceAmount;
     let intentsDepositAddress: string | undefined;
@@ -125,22 +122,3 @@ const burrowDepositFlow: FlowDefinition<BurrowDepositMetadata> = {
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 export { burrowDepositFlow };
-
-// Legacy exports for backwards compatibility during migration
-export const isBurrowDepositIntent = burrowDepositFlow.isMatch;
-
-import { config as globalConfig } from "../config";
-import { createFlowContext } from "./context";
-
-export async function executeBurrowDepositFlow(
-  intent: ValidatedIntent,
-): Promise<FlowResult> {
-  if (!burrowDepositFlow.isMatch(intent)) {
-    throw new Error("Intent does not match Burrow deposit flow");
-  }
-  const ctx = createFlowContext({ intentId: intent.intentId, config: globalConfig });
-  if (burrowDepositFlow.validateAuthorization) {
-    await burrowDepositFlow.validateAuthorization(intent, ctx);
-  }
-  return burrowDepositFlow.execute(intent, ctx);
-}

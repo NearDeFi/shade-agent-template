@@ -1,16 +1,12 @@
+import { address, type Address, type IInstruction } from "@solana/kit";
+import { getTransferSolInstruction } from "@solana-program/system";
 import {
-  VersionedTransaction,
-  TransactionMessage,
-  PublicKey,
-  SystemProgram,
-} from "@solana/web3.js";
-import {
-  createAssociatedTokenAccountInstruction,
-  createTransferInstruction,
-  getAssociatedTokenAddress,
-  getAccount,
-} from "@solana/spl-token";
-import { createSolanaRpc, address, Address } from "@solana/kit";
+  findAssociatedTokenPda,
+  getCreateAssociatedTokenInstruction,
+  getTransferInstruction,
+  fetchToken,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import {
   KaminoAction,
   KaminoMarket,
@@ -22,67 +18,46 @@ import { KaminoWithdrawMetadata, ValidatedIntent } from "../queue/types";
 import {
   deriveAgentPublicKey,
   SOLANA_DEFAULT_PATH,
-  getSolanaConnection,
+  getSolanaRpc,
   signAndBroadcastDualSigner,
+  buildAndCompileTransaction,
+  createKaminoRpc,
+  type CompiledTransaction,
+  type SolanaRpc,
 } from "../utils/solana";
 import { createDummySigner } from "../utils/chainSignature";
 import { validateSolanaWithdrawAuthorization } from "../utils/authorization";
 import { SOL_NATIVE_MINT } from "../constants";
 import { getDefuseAssetId, getSolDefuseAssetId } from "../utils/tokenMappings";
 import { getIntentsQuote, createBridgeBackQuoteRequest } from "../utils/intents";
-import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger } from "./types";
-
-// ─── @solana/kit Instruction Types ──────────────────────────────────────────────
-
-/**
- * Account role in @solana/kit instructions
- * 0 = readonly, 1 = writable, 2 = signer readonly, 3 = signer writable
- */
-type AccountRole = 0 | 1 | 2 | 3;
-
-interface KitAccountMeta {
-  address: Address;
-  role: AccountRole;
-}
-
-interface KitInstruction {
-  programAddress: Address;
-  accounts: readonly KitAccountMeta[];
-  data: Uint8Array;
-}
+import { dryRunResult } from "./context";
+import type { FlowDefinition, FlowContext, FlowResult, AppConfig, Logger, BridgeBackResult } from "./types";
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
-
-function createKaminoRpc(config: AppConfig) {
-  return createSolanaRpc(config.solRpcUrl);
-}
 
 async function buildKaminoWithdrawTransaction(
   intent: ValidatedIntent & { metadata: KaminoWithdrawMetadata },
   config: AppConfig,
   logger: Logger,
-): Promise<{ transaction: VersionedTransaction; serializedMessage: Uint8Array }> {
-  const rpc = createKaminoRpc(config);
+): Promise<{ compiledTx: CompiledTransaction }> {
+  const rpc = createKaminoRpc(config.solRpcUrl);
   const meta = intent.metadata;
 
   // Base agent pays for transaction fees (has SOL)
-  const feePayerPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
+  const feePayerAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
 
   // User-specific derived account holds kTokens for custody isolation
-  const userAgentPublicKey = await deriveAgentPublicKey(
+  const userAgentAddress = await deriveAgentPublicKey(
     SOLANA_DEFAULT_PATH,
     intent.userDestination,
   );
-  const ownerAddress = address(userAgentPublicKey.toBase58());
 
-  // Create a dummy signer - we only need its address, not actual signing capability
-  // The actual signing is done via NEAR chain signatures
-  const dummySigner = createDummySigner(ownerAddress);
+  const dummySigner = createDummySigner(userAgentAddress);
 
   const market = await KaminoMarket.load(
     rpc,
     address(meta.marketAddress),
-    1000, // recentSlotDurationMs
+    1000,
     PROGRAM_ID,
   );
   if (!market) {
@@ -120,42 +95,17 @@ async function buildKaminoWithdrawTransaction(
     ...(withdrawAction.setupIxs || []),
     ...(withdrawAction.lendingIxs || []),
     ...(withdrawAction.cleanupIxs || []),
-  ].filter((ix) => ix != null);
+  ].filter((ix) => ix != null) as IInstruction[];
 
   logger.debug(`Total instructions after filtering: ${instructions.length}`);
 
-  // For broadcasting via @solana/web3.js, we need to convert the transaction
-  const connection = getSolanaConnection();
-  const { blockhash } = await connection.getLatestBlockhash();
-
-  // Convert kit instructions to web3.js instructions
-  const web3Instructions = instructions.map((ix) => {
-    const kitIx = ix as unknown as KitInstruction;
-    return {
-      programId: new PublicKey(kitIx.programAddress),
-      keys: (kitIx.accounts || []).map((acc) => ({
-        pubkey: new PublicKey(acc.address),
-        isSigner: acc.role === 2 || acc.role === 3,
-        isWritable: acc.role === 1 || acc.role === 3,
-      })),
-      data: Buffer.from(kitIx.data),
-    };
+  const compiledTx = await buildAndCompileTransaction({
+    instructions,
+    feePayer: feePayerAddress,
+    rpc,
   });
 
-  const messageV0 = new TransactionMessage({
-    payerKey: feePayerPublicKey,
-    recentBlockhash: blockhash,
-    instructions: web3Instructions,
-  }).compileToV0Message();
-
-  const transaction = new VersionedTransaction(messageV0);
-
-  return { transaction, serializedMessage: transaction.message.serialize() };
-}
-
-interface BridgeBackResult {
-  txId: string;
-  depositAddress: string;
+  return { compiledTx };
 }
 
 async function executeBridgeBack(
@@ -170,23 +120,26 @@ async function executeBridgeBack(
 
   const mintAddress = meta.mintAddress;
 
-  // Query the actual on-chain token balance instead of using intent.sourceAmount,
-  // since the actual withdrawn amount may differ due to rounding, interest, or fees.
-  const userAgentPublicKey = await deriveAgentPublicKey(
+  // Query the actual on-chain token balance
+  const userAgentAddress = await deriveAgentPublicKey(
     SOLANA_DEFAULT_PATH,
     intent.userDestination,
   );
-  const connection = getSolanaConnection();
-  const mintPubkey = new PublicKey(mintAddress);
+  const rpc = getSolanaRpc();
   let withdrawnAmount: string;
 
   if (mintAddress === SOL_NATIVE_MINT) {
-    const lamports = await connection.getBalance(userAgentPublicKey);
+    const { value: lamports } = await rpc.getBalance(userAgentAddress).send();
     withdrawnAmount = lamports.toString();
   } else {
-    const ata = await getAssociatedTokenAddress(mintPubkey, userAgentPublicKey);
-    const account = await getAccount(connection, ata);
-    withdrawnAmount = account.amount.toString();
+    const mintAddr = address(mintAddress);
+    const [ata] = await findAssociatedTokenPda({
+      mint: mintAddr,
+      owner: userAgentAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
+    const account = await fetchToken(rpc, ata);
+    withdrawnAmount = account.data.amount.toString();
   }
 
   if (withdrawnAmount === "0") {
@@ -216,82 +169,59 @@ async function executeBridgeBack(
 
   const { depositAddress } = await getIntentsQuote(quoteRequest, config);
 
-  const feePayerPublicKey = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
-  const { blockhash } = await connection.getLatestBlockhash();
+  const feePayerAddress = await deriveAgentPublicKey(SOLANA_DEFAULT_PATH);
+  const depositAddr = address(depositAddress);
 
-  let transferIx;
-  const depositPubkey = new PublicKey(depositAddress);
+  const instructions: IInstruction[] = [];
 
   if (mintAddress === SOL_NATIVE_MINT) {
-    transferIx = SystemProgram.transfer({
-      fromPubkey: userAgentPublicKey,
-      toPubkey: depositPubkey,
-      lamports: BigInt(withdrawnAmount),
-    });
+    instructions.push(getTransferSolInstruction({
+      source: createDummySigner(userAgentAddress),
+      destination: depositAddr,
+      amount: BigInt(withdrawnAmount),
+    }) as IInstruction);
   } else {
-    const mintPubkey = new PublicKey(mintAddress);
+    const mintAddr = address(mintAddress);
 
-    const sourceAta = await getAssociatedTokenAddress(
-      mintPubkey,
-      userAgentPublicKey,
-    );
+    const [sourceAta] = await findAssociatedTokenPda({
+      mint: mintAddr,
+      owner: userAgentAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
 
-    const destinationAta = await getAssociatedTokenAddress(
-      mintPubkey,
-      depositPubkey,
-      true,
-    );
+    const [destinationAta] = await findAssociatedTokenPda({
+      mint: mintAddr,
+      owner: depositAddr,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
 
-    const destinationAtaInfo = await connection.getAccountInfo(destinationAta);
+    const destinationAtaInfo = await rpc.getAccountInfo(destinationAta, { encoding: "base64" }).send();
 
-    const instructions = [];
-
-    if (!destinationAtaInfo) {
-      instructions.push(
-        createAssociatedTokenAccountInstruction(
-          feePayerPublicKey,
-          destinationAta,
-          depositPubkey,
-          mintPubkey,
-        ),
-      );
+    if (!destinationAtaInfo.value) {
+      instructions.push(getCreateAssociatedTokenInstruction({
+        payer: createDummySigner(address(feePayerAddress)),
+        ata: destinationAta,
+        owner: depositAddr,
+        mint: mintAddr,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      }) as IInstruction);
     }
 
-    instructions.push(
-      createTransferInstruction(
-        sourceAta,
-        destinationAta,
-        userAgentPublicKey,
-        BigInt(withdrawnAmount),
-      ),
-    );
-
-    const messageV0 = new TransactionMessage({
-      payerKey: feePayerPublicKey,
-      recentBlockhash: blockhash,
-      instructions,
-    }).compileToV0Message();
-
-    const transaction = new VersionedTransaction(messageV0);
-    const serializedMessage = transaction.message.serialize();
-
-    const txId = await signAndBroadcastDualSigner(transaction, serializedMessage, intent.userDestination);
-
-    logger.info(`Bridge transfer tx confirmed: ${txId}`);
-
-    return { txId, depositAddress };
+    instructions.push(getTransferInstruction({
+      source: sourceAta,
+      destination: destinationAta,
+      authority: createDummySigner(userAgentAddress),
+      amount: BigInt(withdrawnAmount),
+    }) as IInstruction);
   }
 
-  const messageV0 = new TransactionMessage({
-    payerKey: feePayerPublicKey,
-    recentBlockhash: blockhash,
-    instructions: [transferIx],
-  }).compileToV0Message();
+  const compiledTx = await buildAndCompileTransaction({
+    instructions,
+    feePayer: feePayerAddress,
+    rpc,
+  });
 
-  const transaction = new VersionedTransaction(messageV0);
-  const serializedMessage = transaction.message.serialize();
-
-  const txId = await signAndBroadcastDualSigner(transaction, serializedMessage, intent.userDestination);
+  const txId = await signAndBroadcastDualSigner(compiledTx, intent.userDestination);
 
   logger.info(`Bridge transfer tx confirmed: ${txId}`);
 
@@ -326,19 +256,13 @@ const kaminoWithdrawFlow: FlowDefinition<KaminoWithdrawMetadata> = {
     const { config, logger } = ctx;
     const meta = intent.metadata;
 
-    if (config.dryRunSwaps) {
-      const result: FlowResult = { txId: `dry-run-kamino-withdraw-${intent.intentId}` };
-      if (meta.bridgeBack) {
-        result.bridgeTxId = `dry-run-bridge-${intent.intentId}`;
-        result.intentsDepositAddress = "dry-run-deposit-address";
-      }
-      return result;
-    }
+    const dry = dryRunResult("kamino-withdraw", intent.intentId, config, { bridgeBack: !!meta.bridgeBack });
+    if (dry) return dry;
 
     // Step 1: Execute Kamino withdrawal
-    const { transaction, serializedMessage } = await buildKaminoWithdrawTransaction(intent, config, logger);
+    const { compiledTx } = await buildKaminoWithdrawTransaction(intent, config, logger);
 
-    const txId = await signAndBroadcastDualSigner(transaction, serializedMessage, intent.userDestination);
+    const txId = await signAndBroadcastDualSigner(compiledTx, intent.userDestination);
 
     logger.info(`Withdrawal tx confirmed: ${txId}`);
 
@@ -359,22 +283,3 @@ const kaminoWithdrawFlow: FlowDefinition<KaminoWithdrawMetadata> = {
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 export { kaminoWithdrawFlow };
-
-// Legacy exports for backwards compatibility during migration
-export const isKaminoWithdrawIntent = kaminoWithdrawFlow.isMatch;
-
-import { config as globalConfig } from "../config";
-import { createFlowContext } from "./context";
-
-export async function executeKaminoWithdrawFlow(
-  intent: ValidatedIntent,
-): Promise<FlowResult> {
-  if (!kaminoWithdrawFlow.isMatch(intent)) {
-    throw new Error("Intent does not match Kamino withdraw flow");
-  }
-  const ctx = createFlowContext({ intentId: intent.intentId, config: globalConfig });
-  if (kaminoWithdrawFlow.validateAuthorization) {
-    await kaminoWithdrawFlow.validateAuthorization(intent, ctx);
-  }
-  return kaminoWithdrawFlow.execute(intent, ctx);
-}

@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { PublicKey } from "@solana/web3.js";
+import { address } from "@solana/kit";
 import type { IntentValidator } from "../queue/validation";
 import type {
   IntentChain,
@@ -11,14 +11,13 @@ import type {
   PriceCondition,
   UserSignature,
 } from "../queue/types";
-import { setStatus } from "../state/status";
+import { enqueueIntentWithStatus } from "../state/status";
 import { deriveOrderAgentAddress } from "../flows/orderCreate";
 import { getOrder } from "../state/orders";
 import { isNearSignature, verifyNearSignature } from "../utils/nearSignature";
 import { verifySolanaSignature } from "../utils/solanaSignature";
 import { createLogger } from "../utils/logger";
 import { AppError } from "../errors/appError";
-import { queueClient } from "../queue/client";
 import {
   requireSupportedOrderCustodyChain,
   validateOrderCreateInput,
@@ -26,6 +25,10 @@ import {
 import { intentValidator as sharedIntentValidator } from "../queue/flowCatalog";
 
 const log = createLogger("orders/service");
+
+interface OrderServiceDeps {
+  enqueueIntentWithStatusFn?: typeof enqueueIntentWithStatus;
+}
 
 export interface CreateOrderRequest {
   orderId: string;
@@ -131,8 +134,9 @@ function verifySignature(
 
   if (expectedUserDestination) {
     try {
-      const expectedSigner = new PublicKey(expectedUserDestination).toBase58();
-      const actualSigner = new PublicKey(sig.publicKey).toBase58();
+      // Normalize addresses via address() — validates format and returns canonical string
+      const expectedSigner = address(expectedUserDestination);
+      const actualSigner = address(sig.publicKey);
       if (expectedSigner !== actualSigner) {
         return { valid: false, error: "Solana signer does not match userDestination" };
       }
@@ -190,6 +194,7 @@ function validateCreateSignature(payload: CreateOrderRequest) {
 export async function createOrder(
   payload: CreateOrderRequest,
   validateIntentFn: IntentValidator = sharedIntentValidator,
+  deps: OrderServiceDeps = {},
 ) {
   validateCreatePayload(payload);
   validateCreateSignature(payload);
@@ -243,8 +248,10 @@ export async function createOrder(
 
   try {
     const validatedIntent = validateIntentFn(intentMessage);
-    await queueClient.enqueueIntent(validatedIntent);
-    await setStatus(validatedIntent.intentId, { state: "pending" });
+    await (deps.enqueueIntentWithStatusFn ?? enqueueIntentWithStatus)(
+      validatedIntent,
+      { state: "pending" },
+    );
   } catch (err) {
     log.error("Failed to enqueue order creation", { err: String(err) });
     throw new AppError("internal_error", (err as Error).message, { cause: err });
@@ -282,6 +289,7 @@ export async function cancelOrder(
   orderId: string,
   payload: CancelOrderRequest,
   validateIntentFn: IntentValidator = sharedIntentValidator,
+  deps: OrderServiceDeps = {},
 ) {
   if (!payload.userDestination) {
     throw new AppError("invalid_request", "userDestination is required");
@@ -353,8 +361,10 @@ export async function cancelOrder(
 
   try {
     const validatedIntent = validateIntentFn(intentMessage);
-    await queueClient.enqueueIntent(validatedIntent);
-    await setStatus(validatedIntent.intentId, { state: "pending" });
+    await (deps.enqueueIntentWithStatusFn ?? enqueueIntentWithStatus)(
+      validatedIntent,
+      { state: "pending" },
+    );
   } catch (err) {
     log.error("Failed to enqueue order cancellation", { err: String(err) });
     throw new AppError("internal_error", (err as Error).message, { cause: err });

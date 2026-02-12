@@ -10,7 +10,7 @@
  * - `DEBUG=1` is a shortcut for debug level (backwards-compatible)
  */
 
-import type { Logger } from "../flows/types";
+import type { Logger } from "../types/logger";
 
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 } as const;
 type Level = keyof typeof LEVELS;

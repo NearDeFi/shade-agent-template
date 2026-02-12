@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   enqueueIntentMock: vi.fn(),
   validateIntentMock: vi.fn(),
   setStatusMock: vi.fn(),
+  enqueueIntentWithStatusMock: vi.fn(),
   getOrderMock: vi.fn(),
   listUserOrdersMock: vi.fn(),
   markOrderFundedMock: vi.fn(),
@@ -17,6 +18,15 @@ const mocks = vi.hoisted(() => ({
   isNearSignatureMock: vi.fn(),
   verifyNearSignatureMock: vi.fn(),
   verifySolanaSignatureMock: vi.fn(),
+}));
+
+// Prevent @ref-finance/ref-sdk from requiring 'react' at import time
+vi.mock("@ref-finance/ref-sdk", () => ({
+  init_env: vi.fn(),
+  ftGetTokenMetadata: vi.fn(),
+  fetchAllPools: vi.fn(),
+  estimateSwap: vi.fn(),
+  instantSwap: vi.fn(),
 }));
 
 vi.mock("../queue/redis", () => ({
@@ -31,6 +41,7 @@ vi.mock("../queue/validation", () => ({
 
 vi.mock("../state/status", () => ({
   setStatus: mocks.setStatusMock,
+  enqueueIntentWithStatus: mocks.enqueueIntentWithStatusMock,
 }));
 
 vi.mock("../state/orders", () => ({
@@ -87,6 +98,7 @@ describe("orders route signature binding", () => {
     mocks.enqueueIntentMock.mockReset();
     mocks.validateIntentMock.mockReset();
     mocks.setStatusMock.mockReset();
+    mocks.enqueueIntentWithStatusMock.mockReset();
     mocks.getOrderMock.mockReset();
     mocks.listUserOrdersMock.mockReset();
     mocks.markOrderFundedMock.mockReset();
@@ -97,6 +109,11 @@ describe("orders route signature binding", () => {
     mocks.isNearSignatureMock.mockReset();
     mocks.verifyNearSignatureMock.mockReset();
     mocks.verifySolanaSignatureMock.mockReset();
+
+    mocks.enqueueIntentWithStatusMock.mockImplementation(async (intent: { intentId: string }, status: unknown) => {
+      await mocks.enqueueIntentMock(intent);
+      await mocks.setStatusMock(intent.intentId, status);
+    });
 
     mocks.validateIntentMock.mockImplementation((intent) => intent);
     mocks.deriveOrderAgentAddressMock.mockResolvedValue(

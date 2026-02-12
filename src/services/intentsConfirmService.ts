@@ -1,73 +1,91 @@
-import { PublicKey } from "@solana/web3.js";
+import { address } from "@solana/kit";
 import {
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+  findAssociatedTokenPda,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
 import { AppError } from "../errors/appError";
 import { NEAR_DEFAULT_PATH } from "../utils/chainSignature";
 import {
   deriveNearAgentAccount,
   getNearTransactionStatus,
 } from "../utils/near";
-import { deriveAgentPublicKey, getSolanaConnection } from "../utils/solana";
+import { deriveAgentPublicKey, getSolanaRpc } from "../utils/solana";
 import { createLogger } from "../utils/logger";
 import type { IntentValidator } from "../queue/validation";
-import { queueClient } from "../queue/client";
 import {
+  enqueueIntentWithStatus,
   getStatus,
-  setStatus,
   transitionStatus,
   type IntentStatus,
 } from "../state/status";
+import type { IntentMetadata } from "../queue/types";
 import { intentValidator as sharedIntentValidator } from "../queue/flowCatalog";
 
 const log = createLogger("intents/confirmService");
 
-function getAccountAddresses(txInfo: any): string[] {
-  const accountKeys = txInfo.transaction.message.getAccountKeys();
-  const accountAddresses: string[] = [];
-  for (let i = 0; i < accountKeys.length; i++) {
-    const key = accountKeys.get(i);
-    if (key) accountAddresses.push(key.toBase58());
-  }
-  return accountAddresses;
+interface ConfirmIntentDeps {
+  enqueueIntentWithStatusFn?: typeof enqueueIntentWithStatus;
 }
 
-function getSignerAddresses(txInfo: any): string[] {
-  const accountKeys = txInfo.transaction.message.getAccountKeys();
+/**
+ * Kit RPC getTransaction response shape (simplified for our needs).
+ * The full type is complex; we extract what we use.
+ */
+interface KitTransactionResponse {
+  transaction: {
+    message: {
+      accountKeys: string[];
+      header: {
+        numRequiredSignatures: number;
+        numReadonlySignedAccounts: number;
+        numReadonlyUnsignedAccounts: number;
+      };
+    };
+  };
+  meta: {
+    err: unknown;
+    preTokenBalances?: TokenBalanceEntry[];
+    postTokenBalances?: TokenBalanceEntry[];
+  } | null;
+}
+
+interface TokenBalanceEntry {
+  accountIndex: number;
+  mint: string;
+  uiTokenAmount: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
+}
+
+function getAccountAddresses(txInfo: KitTransactionResponse): string[] {
+  return txInfo.transaction.message.accountKeys;
+}
+
+function getSignerAddresses(txInfo: KitTransactionResponse): string[] {
+  const accountKeys = txInfo.transaction.message.accountKeys;
   const requiredSignatures =
     txInfo.transaction.message.header?.numRequiredSignatures ?? 0;
-  const signers: string[] = [];
-  for (let i = 0; i < requiredSignatures; i++) {
-    const key = accountKeys.get(i);
-    if (key) signers.push(key.toBase58());
-  }
-  return signers;
+  return accountKeys.slice(0, requiredSignatures);
 }
 
 function getTokenDeltaForAccountMint(
-  txInfo: any,
+  txInfo: KitTransactionResponse,
   accountAddress: string,
   mintAddress: string,
 ): bigint {
-  const accountKeys = txInfo.transaction.message.getAccountKeys();
-  let accountIndex = -1;
-  for (let i = 0; i < accountKeys.length; i++) {
-    const key = accountKeys.get(i);
-    if (key?.toBase58() === accountAddress) {
-      accountIndex = i;
-      break;
-    }
-  }
+  const accountKeys = txInfo.transaction.message.accountKeys;
+  const accountIndex = accountKeys.indexOf(accountAddress);
 
   if (accountIndex === -1) return 0n;
 
   const pre = (txInfo.meta?.preTokenBalances ?? []).find(
-    (b: any) => b.accountIndex === accountIndex && b.mint === mintAddress,
+    (b) => b.accountIndex === accountIndex && b.mint === mintAddress,
   );
   const post = (txInfo.meta?.postTokenBalances ?? []).find(
-    (b: any) => b.accountIndex === accountIndex && b.mint === mintAddress,
+    (b) => b.accountIndex === accountIndex && b.mint === mintAddress,
   );
 
   const preAmount = BigInt(pre?.uiTokenAmount?.amount ?? "0");
@@ -113,11 +131,11 @@ async function enqueueConfirmedIntent(
   intentData: NonNullable<IntentStatus["intentData"]>,
   detail: string,
   validateIntentFn: IntentValidator,
+  deps: ConfirmIntentDeps,
 ) {
   try {
     const validatedIntent = validateIntentFn(intentData);
-    await queueClient.enqueueIntent(validatedIntent);
-    await setStatus(intentId, {
+    await (deps.enqueueIntentWithStatusFn ?? enqueueIntentWithStatus)(validatedIntent, {
       state: "processing",
       detail,
       intentData: validatedIntent,
@@ -132,8 +150,9 @@ async function verifyNearAndEnqueue(
   txHash: string,
   intentData: NonNullable<IntentStatus["intentData"]>,
   validateIntentFn: IntentValidator,
+  deps: ConfirmIntentDeps,
 ) {
-  const meta = (intentData.metadata ?? {}) as Record<string, unknown>;
+  const meta = (intentData.metadata ?? {}) as Record<string, unknown> & IntentMetadata;
   const userNearAddress = meta.userNearAddress as string | undefined;
   if (!userNearAddress) {
     throw new AppError("internal_error", "Missing userNearAddress in intent metadata");
@@ -182,6 +201,7 @@ async function verifyNearAndEnqueue(
     intentData,
     "NEAR transaction confirmed, bridge-out in progress",
     validateIntentFn,
+    deps,
   );
 
   log.info("NEAR sell intent confirmed and enqueued", {
@@ -196,37 +216,66 @@ async function verifySolanaAndEnqueue(
   txHash: string,
   intentData: NonNullable<IntentStatus["intentData"]>,
   validateIntentFn: IntentValidator,
+  deps: ConfirmIntentDeps,
 ) {
-  const meta = (intentData.metadata ?? {}) as Record<string, unknown>;
+  const meta = (intentData.metadata ?? {}) as Record<string, unknown> & IntentMetadata;
   const userSourceAddress = meta.userSourceAddress as string | undefined;
   if (!userSourceAddress) {
     throw new AppError("internal_error", "Missing userSourceAddress in intent metadata");
   }
 
+  // Validate address format by calling address() — throws if invalid
   let normalizedUserSourceAddress: string;
   try {
-    normalizedUserSourceAddress = new PublicKey(userSourceAddress).toBase58();
+    normalizedUserSourceAddress = address(userSourceAddress);
   } catch {
     throw new AppError("internal_error", "Invalid userSourceAddress in intent metadata");
   }
 
-  const connection = getSolanaConnection();
-  let txInfo;
+  const rpc = getSolanaRpc();
+  let txInfo: KitTransactionResponse;
   try {
-    txInfo = await connection.getTransaction(txHash, {
+    // `as any` — Kit expects a branded Signature type, but we have a plain string from the user
+    const result = await rpc.getTransaction(txHash as any, {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
-    });
+      // Kit RPC returns JSON-parsed response; request "jsonParsed" for account keys
+      encoding: "jsonParsed",
+    } as any).send();
+
+    if (!result) {
+      throw new AppError(
+        "not_found",
+        "Transaction not found on-chain. It may not be confirmed yet.",
+      );
+    }
+
+    // Kit RPC returns the JSON-RPC response directly. The account keys
+    // in jsonParsed encoding are in `transaction.message.accountKeys`
+    // as an array of objects with `pubkey` field, or as strings depending
+    // on the encoding. We normalize to string[].
+    const rawAccountKeys = (result as any).transaction?.message?.accountKeys ?? [];
+    const accountKeys: string[] = rawAccountKeys.map((k: any) =>
+      typeof k === "string" ? k : k.pubkey ?? k,
+    );
+
+    txInfo = {
+      transaction: {
+        message: {
+          accountKeys,
+          header: (result as any).transaction?.message?.header ?? {
+            numRequiredSignatures: 0,
+            numReadonlySignedAccounts: 0,
+            numReadonlyUnsignedAccounts: 0,
+          },
+        },
+      },
+      meta: (result as any).meta ?? null,
+    };
   } catch (err) {
+    if (err instanceof AppError) throw err;
     log.error("Failed to fetch transaction", { txHash, err: String(err) });
     throw new AppError("upstream_error", "Failed to verify transaction on-chain", { cause: err });
-  }
-
-  if (!txInfo) {
-    throw new AppError(
-      "not_found",
-      "Transaction not found on-chain. It may not be confirmed yet.",
-    );
   }
 
   if (txInfo.meta?.err) {
@@ -250,23 +299,22 @@ async function verifySolanaAndEnqueue(
     );
   }
 
-  const agentPubkey = await deriveAgentPublicKey(undefined, userSourceAddress);
-  const agentAddress = agentPubkey.toBase58();
+  const agentAddress = await deriveAgentPublicKey(undefined, userSourceAddress);
   const accountAddresses = getAccountAddresses(txInfo);
-  const agentWsolAta = getAssociatedTokenAddressSync(
-    NATIVE_MINT,
-    agentPubkey,
-    true,
-    TOKEN_PROGRAM_ID,
-  );
 
-  const agentWsolAtaAddress = agentWsolAta.toBase58();
-  if (!accountAddresses.includes(agentWsolAtaAddress)) {
+  const nativeMintAddr = address("So11111111111111111111111111111111111111112");
+  const [agentWsolAta] = await findAssociatedTokenPda({
+    mint: nativeMintAddr,
+    owner: agentAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
+
+  if (!accountAddresses.includes(agentWsolAta)) {
     log.warn("Expected agent wSOL ATA not found in transaction account keys", {
       intentId,
       txHash,
       agentAddress,
-      agentWsolAta: agentWsolAtaAddress,
+      agentWsolAta,
     });
     throw new AppError(
       "forbidden",
@@ -276,14 +324,14 @@ async function verifySolanaAndEnqueue(
 
   const wsolDelta = getTokenDeltaForAccountMint(
     txInfo,
-    agentWsolAtaAddress,
-    NATIVE_MINT.toBase58(),
+    agentWsolAta,
+    "So11111111111111111111111111111111111111112",
   );
   if (wsolDelta <= 0n) {
     log.warn("Confirmed transaction did not credit agent wSOL ATA", {
       intentId,
       txHash,
-      agentWsolAta: agentWsolAtaAddress,
+      agentWsolAta,
       wsolDelta: wsolDelta.toString(),
     });
     throw new AppError(
@@ -300,6 +348,7 @@ async function verifySolanaAndEnqueue(
     intentData,
     "User transaction confirmed, bridge-out in progress",
     validateIntentFn,
+    deps,
   );
 
   log.info("Sell intent confirmed and enqueued", {
@@ -313,6 +362,7 @@ export async function confirmIntentUserTransaction(
   intentId: string,
   txHash: string,
   validateIntentFn: IntentValidator = sharedIntentValidator,
+  deps: ConfirmIntentDeps = {},
 ) {
   const status = await loadAwaitingIntent(intentId);
   const intentData = status.intentData!;
@@ -334,11 +384,11 @@ export async function confirmIntentUserTransaction(
   };
 
   try {
-    const meta = (intentData.metadata ?? {}) as Record<string, unknown>;
+    const meta = (intentData.metadata ?? {}) as Record<string, unknown> & IntentMetadata;
     if (meta.action === "near-bridge-out") {
-      await verifyNearAndEnqueue(intentId, txHash, intentData, validateIntentFn);
+      await verifyNearAndEnqueue(intentId, txHash, intentData, validateIntentFn, deps);
     } else {
-      await verifySolanaAndEnqueue(intentId, txHash, intentData, validateIntentFn);
+      await verifySolanaAndEnqueue(intentId, txHash, intentData, validateIntentFn, deps);
     }
   } catch (err) {
     const appErr = err instanceof AppError ? err : new AppError("internal_error", "Failed to confirm transaction", { cause: err });

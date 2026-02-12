@@ -1,7 +1,13 @@
 import { Hono } from "hono";
-import { SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { getTransferSolInstruction } from "@solana-program/system";
 import { requestSignature } from "@neardefi/shade-agent-js";
-import { deriveAgentPublicKey, getSolanaConnection, SOLANA_DEFAULT_PATH } from "../utils/solana";
+import {
+  deriveAgentPublicKey,
+  getSolanaRpc,
+  buildAndCompileTransaction,
+  SOLANA_DEFAULT_PATH,
+} from "../utils/solana";
+import { createDummySigner } from "../utils/chainSignature";
 import { parseSignature } from "../utils/signature";
 import { createLogger } from "../utils/logger";
 import { AppError } from "../errors/appError";
@@ -12,25 +18,23 @@ const app = new Hono();
 app.onError((err, c) => handleRouteError(c, err, log));
 
 app.get("/", async (c) => {
-  const connection = getSolanaConnection();
-  const agentPubkey = await deriveAgentPublicKey();
-  const { blockhash } = await connection.getLatestBlockhash("finalized");
+  const agentAddress = await deriveAgentPublicKey();
 
   // Build a trivial self-transfer to exercise signing; we do not broadcast.
-  const messageV0 = new TransactionMessage({
-    payerKey: agentPubkey,
-    recentBlockhash: blockhash,
+  const rpc = getSolanaRpc();
+  const compiledTx = await buildAndCompileTransaction({
     instructions: [
-      SystemProgram.transfer({
-        fromPubkey: agentPubkey,
-        toPubkey: agentPubkey,
-        lamports: 1n,
+      getTransferSolInstruction({
+        source: createDummySigner(agentAddress),
+        destination: agentAddress,
+        amount: 1n,
       }),
     ],
-  }).compileToV0Message();
+    feePayer: agentAddress,
+    rpc,
+  });
 
-  const tx = new VersionedTransaction(messageV0);
-  const payloadHex = Buffer.from(tx.message.serialize()).toString("hex");
+  const payloadHex = Buffer.from(compiledTx.messageBytes).toString("hex");
 
   const signRes = await requestSignature({
     path: SOLANA_DEFAULT_PATH,
@@ -47,10 +51,8 @@ app.get("/", async (c) => {
     throw new AppError("operation_failed", "Unsupported signature encoding");
   }
 
-  tx.signatures[0] = parsed;
-
   return c.json({
-    agentPublicKey: agentPubkey.toBase58(),
+    agentPublicKey: agentAddress,
     payloadHexLength: payloadHex.length,
     signatureHex: Buffer.from(parsed).toString("hex"),
     status: "signed",
