@@ -39,8 +39,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# contract
-contract/target
+# contract build
+target
 
 # new releases
 new-release/
