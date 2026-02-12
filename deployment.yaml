@@ -20,7 +20,7 @@ agent_contract:
   deploy_custom:
     enabled: true
     # Amount to fund the agent contract with in NEAR
-    funding_amount: 10
+    funding_amount: 8
     # If true the key for contract account will be deleted after deployment locking it
     delete_key: false
 
