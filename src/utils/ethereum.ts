@@ -39,12 +39,12 @@ const MPC_CONTRACT = new contracts.ChainSignatureContract({
   contractId: `v1.signer-prod.testnet`,
 });
 
-// Set up a public client for the Ethereum network
+// Set up a public client for the EVM
 const publicClient = createPublicClient({
   transport: http(ethRpcUrl),
 });
 
-// Set up a chain signatures chain adapter for the Ethereum network
+// Set up a chain signatures chain adapter for the EVM
 export const Evm = new chainAdapters.evm.EVM({
   publicClient,
   contract: MPC_CONTRACT,

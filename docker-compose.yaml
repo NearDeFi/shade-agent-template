@@ -1,30 +1,14 @@
 services:
-  # always have shade-agent-api first in order of services
-  shade-agent-api:
-    environment:
-      NEAR_ACCOUNT_ID: ${NEAR_ACCOUNT_ID}
-      NEAR_SEED_PHRASE: ${NEAR_SEED_PHRASE}
-      API_CODEHASH: ${API_CODEHASH}
-      APP_CODEHASH: ${APP_CODEHASH}
-      NEXT_PUBLIC_contractId: ${NEXT_PUBLIC_contractId}
-      NEAR_RPC_JSON: ${NEAR_RPC_JSON}
-    platform: linux/amd64 # Explicitly set for TDX
-    # shade-agent-api-image
-    image: mattdlockyer/shade-agent-api@sha256:a86e3a4300b069c08d629a38d61a3d780f7992eaf36aa505e4527e466553e2e5
-    container_name: shade-agent-api
-    # DO NOT EXPOSE THE API PORT TO THE PUBLIC
-    volumes:
-      - /var/run/tappd.sock:/var/run/tappd.sock
-    restart: always
   shade-agent-app:
     environment:
-      NEXT_PUBLIC_contractId: ${NEXT_PUBLIC_contractId}
-    platform: linux/amd64 # Explicitly set for TDX
-    # shade-agent-app-image
-    image: pivortex/my-app@sha256:ae189f31b3f9367aae56c393cd8edf9a1138f0ca0acf325c8621dd9eaa157f38
+      AGENT_CONTRACT_ID: ${AGENT_CONTRACT_ID}
+      SPONSOR_ACCOUNT_ID: ${SPONSOR_ACCOUNT_ID}
+      SPONSOR_PRIVATE_KEY: ${SPONSOR_PRIVATE_KEY}
+    platform: linux/amd64
+    image: pivortex/shade-agent-oracle@sha256:f83ff93b8e2a1250b57ea6f83eff2cc8447157a4c5fecee23e24331aaa948b28
     container_name: shade-agent-app
     ports:
-      - "3000:3000"
+      - 3000:3000
     volumes:
-      - /var/run/tappd.sock:/var/run/tappd.sock
+      - /var/run/dstack.sock:/var/run/dstack.sock
     restart: always

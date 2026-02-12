@@ -17034,9 +17034,7 @@
     },
     {
       "ref": "frontend@0.0.0|ethers@6.15.0|@types/node@22.7.5",
-      "dependsOn": [
-        "frontend@0.0.0|ethers@6.15.0|undici-types@6.19.8"
-      ]
+      "dependsOn": ["frontend@0.0.0|ethers@6.15.0|undici-types@6.19.8"]
     },
     {
       "ref": "frontend@0.0.0|ethers@6.15.0|undici-types@6.19.8"
@@ -17154,9 +17152,7 @@
     },
     {
       "ref": "frontend@0.0.0|@noble/curves@1.2.0",
-      "dependsOn": [
-        "frontend@0.0.0|@noble/hashes@1.3.2"
-      ]
+      "dependsOn": ["frontend@0.0.0|@noble/hashes@1.3.2"]
     },
     {
       "ref": "frontend@0.0.0|@noble/hashes@1.3.2"
@@ -17181,21 +17177,15 @@
     },
     {
       "ref": "frontend@0.0.0|@types/node@24.0.10",
-      "dependsOn": [
-        "frontend@0.0.0|undici-types@7.8.0"
-      ]
+      "dependsOn": ["frontend@0.0.0|undici-types@7.8.0"]
     },
     {
       "ref": "frontend@0.0.0|esbuild@0.25.6",
-      "dependsOn": [
-        "frontend@0.0.0|@esbuild/darwin-arm64@0.25.6"
-      ]
+      "dependsOn": ["frontend@0.0.0|@esbuild/darwin-arm64@0.25.6"]
     },
     {
       "ref": "frontend@0.0.0|fdir@6.4.6",
-      "dependsOn": [
-        "frontend@0.0.0|picomatch@4.0.2"
-      ]
+      "dependsOn": ["frontend@0.0.0|picomatch@4.0.2"]
     },
     {
       "ref": "frontend@0.0.0|fsevents@2.3.3"
@@ -17271,9 +17261,7 @@
     },
     {
       "ref": "frontend@0.0.0|@babel/parser@7.28.0",
-      "dependsOn": [
-        "frontend@0.0.0|@babel/types@7.28.0"
-      ]
+      "dependsOn": ["frontend@0.0.0|@babel/types@7.28.0"]
     },
     {
       "ref": "frontend@0.0.0|@babel/template@7.27.2",
@@ -17307,9 +17295,7 @@
     },
     {
       "ref": "frontend@0.0.0|debug@4.4.1",
-      "dependsOn": [
-        "frontend@0.0.0|ms@2.1.3"
-      ]
+      "dependsOn": ["frontend@0.0.0|ms@2.1.3"]
     },
     {
       "ref": "frontend@0.0.0|gensync@1.0.0-beta.2"
@@ -17325,9 +17311,7 @@
     },
     {
       "ref": "frontend@0.0.0|@types/babel__generator@7.27.0",
-      "dependsOn": [
-        "frontend@0.0.0|@babel/types@7.28.0"
-      ]
+      "dependsOn": ["frontend@0.0.0|@babel/types@7.28.0"]
     },
     {
       "ref": "frontend@0.0.0|@types/babel__template@7.4.4",
@@ -17338,9 +17322,7 @@
     },
     {
       "ref": "frontend@0.0.0|@types/babel__traverse@7.20.7",
-      "dependsOn": [
-        "frontend@0.0.0|@babel/types@7.28.0"
-      ]
+      "dependsOn": ["frontend@0.0.0|@babel/types@7.28.0"]
     },
     {
       "ref": "frontend@0.0.0|electron-to-chromium@1.5.180"
@@ -17399,9 +17381,7 @@
     },
     {
       "ref": "frontend@0.0.0|lru-cache@5.1.1",
-      "dependsOn": [
-        "frontend@0.0.0|yallist@3.1.1"
-      ]
+      "dependsOn": ["frontend@0.0.0|yallist@3.1.1"]
     },
     {
       "ref": "frontend@0.0.0|@babel/helper-module-imports@7.27.1",
@@ -17448,18 +17428,14 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@hono/node-server@1.15.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|hono@4.9.10"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|hono@4.9.10"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@neardefi/shade-agent-js@1.0.0"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@types/node@20.19.4",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|undici-types@6.21.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|undici-types@6.21.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|chainsig.js@1.1.11",
@@ -17700,9 +17676,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@cosmjs/math@0.32.4",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|bn.js@5.2.2"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|bn.js@5.2.2"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@cosmjs/proto-signing@0.32.4",
@@ -17861,15 +17835,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@solana/web3.js@1.98.2|node-fetch@2.7.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|whatwg-url@5.0.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|whatwg-url@5.0.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@solana/web3.js@1.98.2|base-x@3.0.11",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|safe-buffer@5.2.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|safe-buffer@5.2.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|base32-decode@1.0.0"
@@ -17893,15 +17863,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|bs58@6.0.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|base-x@5.0.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|base-x@5.0.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|chain-registry@1.69.270",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@chain-registry/types@0.50.169"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@chain-registry/types@0.50.169"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|coinselect@3.1.13"
@@ -18036,36 +18002,26 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|esbuild@0.25.6",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@esbuild/darwin-arm64@0.25.6"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@esbuild/darwin-arm64@0.25.6"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|fsevents@2.3.3"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|get-tsconfig@4.10.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|resolve-pkg-maps@1.0.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|resolve-pkg-maps@1.0.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@aptos-labs/aptos-cli@1.0.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|commander@12.1.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|commander@12.1.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@aptos-labs/aptos-client@2.0.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|got@11.8.6"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|got@11.8.6"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@noble/curves@1.9.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@noble/hashes@1.8.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@noble/hashes@1.8.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@scure/bip32@1.7.0",
@@ -18109,9 +18065,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|libsodium-wrappers-sumo@0.7.15",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|libsodium-sumo@0.7.15"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|libsodium-sumo@0.7.15"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|base64-js@1.5.1"
@@ -18128,9 +18082,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@cosmjs/stream@0.32.4",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|xstream@11.14.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|xstream@11.14.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@cosmjs/tendermint-rpc@0.32.4",
@@ -18156,9 +18108,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@graphql-typed-document-node/core@3.2.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|graphql@16.11.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|graphql@16.11.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@mysten/bcs@1.6.3",
@@ -18169,9 +18119,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@mysten/utils@0.1.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@scure/base@1.2.6"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@scure/base@1.2.6"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|gql.tada@1.8.11",
@@ -18213,15 +18161,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|near-abi@0.2.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@types/json-schema@7.0.15"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@types/json-schema@7.0.15"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|randombytes@2.1.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|safe-buffer@5.2.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|safe-buffer@5.2.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|secp256k1@5.0.1",
@@ -18236,9 +18180,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|node-fetch@2.6.7",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|whatwg-url@5.0.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|whatwg-url@5.0.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|mustache@4.0.0"
@@ -18251,18 +18193,14 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|rxjs@7.8.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|tslib@2.7.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|tslib@2.7.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@babel/runtime@7.27.6"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@solana/buffer-layout@4.0.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|buffer@6.0.3"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|buffer@6.0.3"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@solana/codecs-numbers@2.2.0",
@@ -18274,9 +18212,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|agentkeepalive@4.6.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|humanize-ms@1.2.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|humanize-ms@1.2.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|buffer@6.0.3",
@@ -18327,9 +18263,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|rpc-websockets@9.1.1|@types/ws@8.18.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@types/node@20.19.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@types/node@20.19.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|rpc-websockets@9.1.1|ws@8.18.3",
@@ -18353,9 +18287,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|bs58check@3.0.1|bs58@5.0.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|bs58check@3.0.1|base-x@4.0.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|bs58check@3.0.1|base-x@4.0.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|bs58check@3.0.1|base-x@4.0.1"
@@ -18365,9 +18297,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|varuint-bitcoin@1.1.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|safe-buffer@5.2.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|safe-buffer@5.2.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|base-x@5.0.1"
@@ -18583,15 +18513,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|abitype@1.0.8",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|typescript@5.8.3"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|typescript@5.8.3"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|isows@1.0.7",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|ws@7.5.10"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|ws@7.5.10"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|ox@0.8.1",
@@ -18627,15 +18553,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|bufferutil@4.0.9",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|node-gyp-build@4.8.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|node-gyp-build@4.8.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|utf-8-validate@5.0.10",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|node-gyp-build@4.8.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|node-gyp-build@4.8.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@esbuild/darwin-arm64@0.25.6"
@@ -18667,9 +18589,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|combined-stream@1.0.8",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|delayed-stream@1.0.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|delayed-stream@1.0.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|es-set-tostringtag@2.1.0",
@@ -18682,15 +18602,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|hasown@2.0.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|function-bind@1.1.2"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|function-bind@1.1.2"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|mime-types@2.1.35",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|mime-db@1.52.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|mime-db@1.52.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|libsodium-sumo@0.7.15"
@@ -18749,9 +18665,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@0no-co/graphql.web@1.1.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|graphql@16.11.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|graphql@16.11.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@0no-co/graphqlsp@1.14.0",
@@ -18780,15 +18694,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|generate-function@2.3.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|is-property@1.0.2"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|is-property@1.0.2"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|generate-object-property@1.2.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|is-property@1.0.2"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|is-property@1.0.2"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|is-my-ip-valid@1.0.1"
@@ -18838,9 +18748,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|humanize-ms@1.2.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|ms@2.1.3"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|ms@2.1.3"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|text-encoding-utf-8@1.0.2"
@@ -18850,42 +18758,32 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@types/connect@3.4.38",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@types/node@20.19.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@types/node@20.19.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@types/ws@7.4.7",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@types/node@20.19.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@types/node@20.19.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|delay@5.0.0"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|es6-promisify@5.0.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|es6-promise@4.2.8"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|es6-promise@4.2.8"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|eyes@0.1.8"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|isomorphic-ws@4.0.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|ws@7.5.10"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|ws@7.5.10"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|json-stringify-safe@5.0.1"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|stream-json@1.9.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|stream-chain@2.2.5"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|stream-chain@2.2.5"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|uuid@8.3.2"
@@ -18899,9 +18797,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@swc/helpers@0.5.17",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@swc/helpers@0.5.17|tslib@2.8.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@swc/helpers@0.5.17|tslib@2.8.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@swc/helpers@0.5.17|tslib@2.8.1"
@@ -18926,9 +18822,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@szmarczak/http-timer@4.0.6",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|defer-to-connect@2.0.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|defer-to-connect@2.0.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@types/cacheable-request@6.0.3",
@@ -18941,9 +18835,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@types/responselike@1.0.3",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@types/node@20.19.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@types/node@20.19.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|cacheable-lookup@5.0.4"
@@ -18984,9 +18876,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|responselike@2.0.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|lowercase-keys@2.0.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|lowercase-keys@2.0.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|delayed-stream@1.0.0"
@@ -19011,9 +18901,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|has-tostringtag@1.0.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|has-symbols@1.1.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|has-symbols@1.1.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|function-bind@1.1.2"
@@ -19107,30 +18995,22 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|@types/keyv@3.1.4",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|@types/node@20.19.4"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|@types/node@20.19.4"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|clone-response@1.0.3",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|mimic-response@1.0.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|mimic-response@1.0.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|get-stream@5.2.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|pump@3.0.3"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|pump@3.0.3"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|http-cache-semantics@4.2.0"
     },
     {
       "ref": "my-shade-agent-app@1.0.0|keyv@4.5.4",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|json-buffer@3.0.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|json-buffer@3.0.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|normalize-url@6.1.0"
@@ -19153,9 +19033,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|es-object-atoms@1.1.1",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|es-errors@1.3.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|es-errors@1.3.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|get-proto@1.0.1",
@@ -19180,9 +19058,7 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|has-property-descriptors@1.0.2",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|es-define-property@1.0.1"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|es-define-property@1.0.1"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|object-keys@1.1.1"
@@ -19210,15 +19086,11 @@
     },
     {
       "ref": "my-shade-agent-app@1.0.0|end-of-stream@1.4.5",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|once@1.4.0"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|once@1.4.0"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|once@1.4.0",
-      "dependsOn": [
-        "my-shade-agent-app@1.0.0|wrappy@1.0.2"
-      ]
+      "dependsOn": ["my-shade-agent-app@1.0.0|wrappy@1.0.2"]
     },
     {
       "ref": "my-shade-agent-app@1.0.0|wrappy@1.0.2"

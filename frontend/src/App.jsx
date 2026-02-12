@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import "../styles/globals.css";
-import { getContractPrice, formatBalance } from "./ethereum";
-import Overlay from "./Overlay";
-import { API_URL } from "./config";
+import { getContractPrice } from "./utils/ethereum";
+import { getAgentInfo, getEthInfo, submitTransaction } from "./utils/agent";
+import Overlay from "./components/Overlay";
+import VerificationSection from "./components/Verification/VerificationSection";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,12 +38,9 @@ export default function Home() {
   // Call the API to get the agent account details
   const getAgentAccount = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/agent-account`).then((r) =>
-        r.json(),
-      );
+      const res = await getAgentInfo();
       setAgentAddress(res.accountId);
-      const formattedBalance = formatBalance(res.balance, 24);
-      setAgentBalance(formattedBalance);
+      setAgentBalance(res.balance);
     } catch (error) {
       console.log("Error getting agent account:", error);
       setError("Failed to get agent account details");
@@ -52,12 +50,9 @@ export default function Home() {
   // Call the API to get the Ethereum account details
   const getEthAccount = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/eth-account`).then((r) =>
-        r.json(),
-      );
+      const res = await getEthInfo();
       setEthAddress(res.senderAddress);
-      const formattedBalance = formatBalance(res.balance, 18);
-      setEthBalance(formattedBalance);
+      setEthBalance(res.balance);
     } catch (error) {
       console.log("Error fetching ETH info:", error);
       setError("Failed to fetch ETH account details");
@@ -67,9 +62,7 @@ export default function Home() {
   // Call the API to set the price in the Ethereum contract
   const setPrice = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/transaction`).then((r) =>
-        r.json(),
-      );
+      const res = await submitTransaction();
       setContractPrice(res.newPrice);
       setLastTxHash(res.txHash);
       setMessageHide("Successfully set the ETH price!", 3000, true);
@@ -108,9 +101,10 @@ export default function Home() {
           smart contract using Shade Agents.
         </p>
         <ol>
-          <li>Keep the agent account funded with testnet NEAR tokens</li>
-          <li>Fund the Ethereum Sepolia account (0.001 ETH will do)</li>
-          <li>Send the ETH price to the Ethereum contract</li>
+          <p>
+            Fund the Ethereum Sepolia account (0.001 ETH will do), then send the
+            ETH price to the Ethereum contract
+          </p>
         </ol>
 
         {/* Display the current price in the Ethereum contract */}
@@ -138,7 +132,7 @@ export default function Home() {
         {/* Display the agent account details */}
         <div className="grid">
           <div className="card">
-            <h3>Fund Agent Account</h3>
+            <h3>Agent Account</h3>
             <p>
               <br />
               {agentAddress?.length >= 24
@@ -172,25 +166,17 @@ export default function Home() {
                 try {
                   return agentBalance;
                 } catch (error) {
-                  console.error("Error formatting balance:", error);
+                  console.error("Error getting agent balance:", error);
                   return "0";
                 }
               })()}
               <br />
-              <a
-                href="https://near-faucet.io/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="faucet-link"
-              >
-                Get Testnet NEAR tokens from faucet →
-              </a>
             </p>
           </div>
 
           {/* Display the Ethereum account details */}
           <div className="card">
-            <h3>Fund Sepolia Account</h3>
+            <h3>Sepolia Account</h3>
             <p>
               <br />
               {ethAddress ? (
@@ -249,12 +235,16 @@ export default function Home() {
               await setPrice();
             }}
           >
-            <h3>Set ETH Price</h3>
+            <h3>Send ETH Price</h3>
             <p className="code">
-              Click to set the ETH price in the smart contract
+              Click to send the ETH price to the smart contract
             </p>
           </a>
         </div>
+
+        <hr className="verification-separator" />
+
+        <VerificationSection onError={setError} />
       </main>
 
       {/* Display the terms of use link */}

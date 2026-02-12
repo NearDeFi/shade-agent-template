@@ -1,0 +1,116 @@
+# environment: local | TEE
+environment: local
+
+# network: testnet | mainnet
+network: testnet
+
+# Path to docker-compose file
+docker_compose_path: ./docker-compose.yaml
+
+agent_contract:
+  # NEAR Account Id of the contract
+  # Fill this out with a unique contract id for your agent contract
+  # For example: example-contract-123.testnet
+  # This account should not already be in use
+  contract_id:
+
+  # Optional, if not enabled the contract will not be deployed
+  # and it's assumed the agent contract is already deployed to the contract_id
+  # and is initialized
+  deploy_custom:
+    enabled: true
+    # Amount to fund the agent contract with in NEAR
+    funding_amount: 10
+    # If true the key for contract account will be deleted after deployment locking it
+    delete_key: false
+
+    # Choose ONE of the following:
+    # Option 1: Build contract from source and deploy
+    deploy_from_source:
+      enabled: true
+      source_path: ./agent-contract
+    # Option 2: Use pre-built WASM file
+    deploy_from_wasm:
+      enabled: false
+      wasm_path: ./agent-contract/target/near/shade-contract-template.wasm
+    # Option 3: Use a deployed global contract, specifying it by its hash
+    use_global_by_hash:
+      enabled: false
+      global_hash: 8eHvv9q4eovoUgDXYEduwv3dbcfXkCyPP9TSmhUSxkcm
+
+    # Optional, if not enabled the contract will not be initialized
+    init:
+      enabled: true
+      method_name: new
+      # <REQUIRES_TEE> will be replaced wil true or false depending on the environment selected
+      # <7_DAYS> will be replaced with 7 days in milliseconds
+      # <MASTER_ACCOUNT_ID> will be replaced with the master account set up in the auth of the CLI
+      # <DEFAULT_MPC_CONTRACT_ID> will be replaced with the MPC contract address depending on the network selected
+      args: |
+        {
+          "requires_tee": <REQUIRES_TEE>,
+          "attestation_expiration_time_ms": <7_DAYS>,
+          "owner_id": <MASTER_ACCOUNT_ID>,
+          "mpc_contract_id": <DEFAULT_MPC_CONTRACT_ID>
+        }
+      # tgas: 30
+
+# Approve allowed measurements for registration
+# Optional, if not enabled the measurements will not be approved
+approve_measurements:
+  enabled: true
+  method_name: approve_measurements
+  # <MEASUREMENTS> will be replaced with calculated measurements
+  # for local it will be set to default measurements (all zeros)
+  # for TEE and docker disabled it will be set to the measurements based on the current docker-compose file
+  # for TEE and docker enabled it will be set to the measurements based on the docker-compose file once it has been updated
+  args: |
+    {
+      "measurements": <MEASUREMENTS>
+    }
+  # tgas: 30
+
+# Approve allowed PPIDs for registration
+# Optional, if not enabled the PPIDs will not be approved
+approve_ppids:
+  enabled: true
+  method_name: approve_ppids
+  # <PPIDS> will be replaced with the PPIDs
+  # for local it will be set to a default PPID (all zeros)
+  # for TEE it will approve PPIDs on Phala Cloud
+  args: |
+    {
+      "ppids": <PPIDS>
+    }
+  # tgas: 30
+
+# Build a new docker image using the specified Dockerfile
+# the docker-compose.yaml will be updated with the new docker image
+# Optional, if not enabled the current docker-compose.yaml file will be used
+# Only applicable if the environment is TEE
+build_docker_image:
+  enabled: true
+  # Fill this out with the docker tag you want to use. For example: pivortex/my-first-agent
+  tag: 
+  cache: true
+  dockerfile_path: ./Dockerfile
+
+# Deploy the docker compose file to Phala Cloud with the specified environment variables
+# Optional, if not enabled the app will not be deployed to Phala Cloud
+# Only applicable if the environment is TEE
+deploy_to_phala:
+  enabled: true
+  app_name: my-first-agent
+  env_file_path: ./.env
+
+# Helper command to whitelist an agent for local mode
+# Use the "shade whitelist" command
+whitelist_agent_for_local:
+  method_name: whitelist_agent_for_local
+  # The <AGENT_ACCOUNT_ID> will automatically be replaced with the agent account id
+  # specified when running the "shade whitelist" command
+  args: |
+    {
+      "account_id": <AGENT_ACCOUNT_ID>
+    }
+  # tgas: 30
