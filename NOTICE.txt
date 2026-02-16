@@ -1,0 +1,43 @@
+========================================================================
+NOTICE
+Copyright (c) Proximity 2026 
+========================================================================
+
+-------------------------------------------------------------------------------
+Disclaimers and Security Notice
+-------------------------------------------------------------------------------
+THIS SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+This project **has not been independently audited or security-reviewed**. It may contain bugs, vulnerabilities, or other defects that could result in unintended behavior, including but not limited to **loss of funds, tokens, or digital assets**.
+
+By using, deploying, or integrating this code, you acknowledge and agree that:
+
+- You assume all risks associated with its use;
+
+- The authors, contributors, and maintainers are **not liable** for any direct, indirect, incidental, special, exemplary, or consequential damages (including loss of assets or profits); and
+
+- You are strongly encouraged to conduct an independent security audit prior to 
+  production use.
+
+The Shade Agent Framework is experimental and contains known critical vulnerabilities.
+It must not be used in production or on mainnet and is intended solely for testing and non-critical use on testnet.
+No representations or warranties are made regarding security, correctness, or fitness for any purpose. Use of this software is entirely at your own risk.
+A production-ready version of the framework is currently in development.
+
+-------------------------------------------------------------------------------
+Attribution and Redistribution
+-------------------------------------------------------------------------------
+Redistributions of this project, whether modified or unmodified, must:
+1. Retain this NOTICE file in full;
+2. Include the applicable third-party license texts (e.g., in LICENSE-THIRD-PARTY.txt); and
+3. Preserve all SPDX identifiers and copyright headers in individual files.
+
+-------------------------------------------------------------------------------
+Third-Party Dependencies
+-------------------------------------------------------------------------------
+
+This project depends on third-party packages under various open-source licenses, including  0BSD, Apache-2.0, BSD-2-Clause, BSD-3-Clause, CC-BY-4.0, ISC, LGPL-3.0-only, MIT. A full list of dependencies and their licenses can be found in the sbom.cyclonedx.json file.
+
+-------------------------------------------------------------------------------
+End of NOTICE
+-------------------------------------------------------------------------------

@@ -1,7 +1,13 @@
 # Shade Agent - Verifiable Cross-Chain DeFi Automation
 
-> [!WARNING]
-> This technology has not yet undergone a formal audit. Please conduct your own due diligence and exercise caution before integrating or relying on it in production environments.
+> [!WARNING]  
+> The Shade Agent Framework is experimental and contains known critical vulnerabilities.
+> 
+> It must not be used in production or on mainnet and is intended solely for testing and non-critical use on testnet.
+> 
+> No representations or warranties are made regarding security, correctness, or fitness for any purpose. Use of this software is entirely at your own risk.
+> 
+> A production-ready version of the framework is currently in development.
 
 A **verifiable execution environment** for cross-chain DeFi operations, leveraging **Trusted Execution Environments (TEE)**, **Multi-Party Computation (MPC)** chain signatures, and **intent-based architecture** to enable secure, self-custodial automation across Solana, NEAR, and Ethereum.
 
