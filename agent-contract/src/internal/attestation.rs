@@ -7,9 +7,6 @@ impl Contract {
     ) -> (FullMeasurementsHex, Ppid) {
         let result: (FullMeasurementsHex, Ppid) = match self.requires_tee {
             true => {
-                // Get the current time
-                let current_time_seconds = block_timestamp_ms() / 1000;
-
                 // Verify account_ID is an implicit account ID
                 let account_id_str = env::predecessor_account_id().to_string();
                 require!(
@@ -41,7 +38,7 @@ impl Contract {
                 // Verify the attestation
                 match attestation.verify(
                     expected_report_data,
-                    current_time_seconds,
+                    block_timestamp_ms() / 1000,
                     &expected_measurements,
                     &approved_ppids,
                 ) {

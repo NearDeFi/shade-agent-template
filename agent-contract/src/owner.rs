@@ -113,7 +113,7 @@ impl Contract {
     // Remove an agent from the list of whitelisted agents
     pub fn remove_agent_from_whitelist_for_local(&mut self, account_id: AccountId) {
         if self.requires_tee {
-            panic!("Removing agents is not supported for TEE");
+            panic!("Removing agents from the whitelist is not supported for TEE");
         }
         self.require_owner();
         require!(

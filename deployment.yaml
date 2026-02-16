@@ -7,12 +7,12 @@ network: testnet
 # Path to docker-compose file
 docker_compose_path: ./docker-compose.yaml
 
-agent_contract:
+agent_contract: 
   # NEAR Account Id of the contract
   # Fill this out with a unique contract id for your agent contract
   # For example: example-contract-123.testnet
   # This account should not already be in use
-  contract_id:
+  contract_id: 
 
   # Optional, if not enabled the contract will not be deployed
   # and it's assumed the agent contract is already deployed to the contract_id
