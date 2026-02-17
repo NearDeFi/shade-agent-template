@@ -11,7 +11,7 @@ impl Contract {
         payload: String,
         key_type: String,
     ) -> Promise {
-        // Require the caller to be a valid agent, panic if not
+        // Require the caller to be a valid agent, if not, execute a promise to panic
         if let Some(failure_promise) = self.require_valid_agent() {
             return failure_promise;
         }

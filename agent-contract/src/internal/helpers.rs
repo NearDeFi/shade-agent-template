@@ -23,9 +23,8 @@ impl Contract {
     // Just because an agent is registered does not mean it is currently valid
     // Returns Some(Promise) if agent is invalid (to fail the request), None if valid
     pub(crate) fn require_valid_agent(&mut self) -> Option<Promise> {
-        let account_id = env::predecessor_account_id();
-
         // Get the agent and check if it is registered
+        let account_id = env::predecessor_account_id();
         let agent = self.agents.get(&account_id).expect("Agent not registered");
 
         // Check if the agent is invalid and return a promise to panic if it is
@@ -33,6 +32,7 @@ impl Contract {
 
         if !removal_reasons.is_empty() {
             self.agents.remove(&account_id);
+
             Event::AgentRemoved {
                 account_id: &account_id,
                 reasons: removal_reasons.clone(),
@@ -42,13 +42,13 @@ impl Contract {
             let args_json = serde_json::json!({
                 "reasons": removal_reasons
             });
-
             let promise = Promise::new(env::current_account_id()).function_call(
                 "fail_on_invalid_agent".to_string(),
                 serde_json::to_vec(&args_json).expect("Failed to serialize reasons"),
                 NearToken::from_near(0),
                 Gas::from_tgas(10),
             );
+
             return Some(promise);
         }
         None
