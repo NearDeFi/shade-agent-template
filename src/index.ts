@@ -20,6 +20,18 @@ if (!agentContractId || !sponsorAccountId || !sponsorPrivateKey) {
   );
 }
 
+// Initialize app
+const app = new Hono();
+
+// Middleware
+app.use(cors());
+
+// Routes
+app.get("/", (c) => c.json({ message: "App is running" }));
+app.route("/api/agent-info", agentInfo);
+app.route("/api/eth-info", ethInfo);
+app.route("/api/transaction", transaction);
+
 // Initialize Shade Agent client
 export const agent = await ShadeClient.create({
   networkId: "testnet",
@@ -32,18 +44,6 @@ export const agent = await ShadeClient.create({
   // Derivation path for fixed agent account ID for local
   derivationPath: sponsorPrivateKey, // Random string kept secret (private key does a good job)
 });
-
-// Initialize app
-const app = new Hono();
-
-// Middleware
-app.use(cors());
-
-// Routes
-app.get("/", (c) => c.json({ message: "App is running" }));
-app.route("/api/agent-info", agentInfo);
-app.route("/api/eth-info", ethInfo);
-app.route("/api/transaction", transaction);
 
 console.log("Agent account ID:", agent.accountId());
 
