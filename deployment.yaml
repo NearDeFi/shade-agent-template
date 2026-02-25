@@ -32,7 +32,7 @@ agent_contract:
     # Option 2: Use pre-built WASM file
     deploy_from_wasm:
       enabled: false
-      wasm_path: ./agent-contract/target/near/shade-contract-template.wasm
+      wasm_path: ./agent-contract/target/near/shade_contract_template.wasm
     # Option 3: Use a deployed global contract, specifying it by its hash
     use_global_by_hash:
       enabled: false

@@ -14,22 +14,17 @@ export default function ParsedMeasurement({ m, compact }) {
     : "measurement-parsed";
   return (
     <dl className={className}>
-      <dt>RTMRs</dt>
-      <dd>
-        <span className="measurement-label">mrtd</span> {String(mrtd)}
-      </dd>
-      <dd>
-        <span className="measurement-label">rtmr0</span> {String(rtmr0)}
-      </dd>
-      <dd>
-        <span className="measurement-label">rtmr1</span> {String(rtmr1)}
-      </dd>
-      <dd>
-        <span className="measurement-label">rtmr2</span> {String(rtmr2)}
-      </dd>
-      <dt>key_provider_event_digest</dt>
+      <dt>MRTD</dt>
+      <dd>{String(mrtd)}</dd>
+      <dt>RTMR 0</dt>
+      <dd>{String(rtmr0)}</dd>
+      <dt>RTMR 1</dt>
+      <dd>{String(rtmr1)}</dd>
+      <dt>RTMR 2</dt>
+      <dd>{String(rtmr2)}</dd>
+      <dt>Key provider event digest</dt>
       <dd>{String(keyProvider)}</dd>
-      <dt>app_compose_hash_payload</dt>
+      <dt>App compose hash payload</dt>
       <dd>{String(appCompose)}</dd>
     </dl>
   );
