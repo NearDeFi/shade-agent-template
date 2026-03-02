@@ -8,7 +8,6 @@ async function getETHPriceFromOKX(): Promise<number | null> {
       throw new Error(`OKX API error: ${response.status}`);
     }
     const data = await response.json();
-    // OKX returns an array in the 'data' field; extract the 'last' price
     const price = parseFloat(data.data[0].last);
     console.log(`OKX ETH Price: $${price}`);
     return price;

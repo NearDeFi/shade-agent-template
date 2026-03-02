@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requestSignature } from "@neardefi/shade-agent-js";
+import { agent } from "../index";
 import {
   ethContractAbi,
   ethContractAddress,
@@ -8,7 +8,7 @@ import {
 } from "../utils/ethereum";
 import { getEthereumPriceUSD } from "../utils/fetch-eth-price";
 import { Contract, JsonRpcProvider } from "ethers";
-import { utils } from "chainsig.js";
+import { utils, type MPCSignature } from "chainsig.js";
 const { toRSV, uint8ArrayToHex } = utils.cryptography;
 
 const app = new Hono();
@@ -16,41 +16,44 @@ const app = new Hono();
 app.get("/", async (c) => {
   try {
     // Fetch the environment variable inside the route
-    const contractId = process.env.NEXT_PUBLIC_contractId;
+    const contractId = process.env.AGENT_CONTRACT_ID;
     if (!contractId) {
       return c.json({ error: "Contract ID not configured" }, 500);
     }
 
-    // Get the ETH price
+    // Get the price of ETH
     const ethPrice = await getEthereumPriceUSD();
     if (!ethPrice) {
       return c.json({ error: "Failed to fetch ETH price" }, 500);
     }
 
-    // Get the transaction and payload to sign
+    // Create the transaction and payload to sign
     const { transaction, hashesToSign } = await getPricePayload(
       ethPrice,
       contractId,
     );
 
-    // Call the agent contract to get a signature for the payload
-    const signRes = await requestSignature({
-      path: "ethereum-1",
-      payload: uint8ArrayToHex(hashesToSign[0]),
-      keyType: "Ecdsa",
+    // Call the request_signature function on the agent contract to get a signature for the payload
+    const signRes = await agent.call({
+      methodName: "request_signature",
+      args: {
+        path: "ethereum-1",
+        payload: uint8ArrayToHex(hashesToSign[0]),
+        key_type: "Ecdsa",
+      },
     });
     console.log("signRes", signRes);
 
     // Reconstruct the signed transaction
     const signedTransaction = Evm.finalizeTransactionSigning({
       transaction,
-      rsvSignatures: [toRSV(signRes)],
+      rsvSignatures: [toRSV(signRes as MPCSignature)],
     });
 
-    // Broadcast the signed transaction
+    // Broadcast the signed transaction to the EVM
     const txHash = await Evm.broadcastTx(signedTransaction);
 
-    // Send back both the txHash and the new price optimistically
+    // Return the txHash and the new price optimistically
     return c.json({
       txHash: txHash.hash,
       newPrice: (ethPrice / 100).toFixed(2),
@@ -62,18 +65,18 @@ app.get("/", async (c) => {
 });
 
 async function getPricePayload(ethPrice: number, contractId: string) {
-  // Derive the price pusher Ethereum address
+  // Derive the price pusher EVM address
   const { address: senderAddress } = await Evm.deriveAddressAndPublicKey(
     contractId,
     "ethereum-1",
   );
-  // Create a new JSON-RPC provider for the Ethereum network
+  // Create a new JSON-RPC provider for the EVM network
   const provider = new JsonRpcProvider(ethRpcUrl);
-  // Create a new contract interface for the Ethereum Oracle contract
+  // Create a new contract interface for the EVM Oracle contract
   const contract = new Contract(ethContractAddress, ethContractAbi, provider);
   // Encode the function data for the updatePrice function
   const data = contract.interface.encodeFunctionData("updatePrice", [ethPrice]);
-  // Prepare the transaction for signing 
+  // Prepare the transaction for signing
   const { transaction, hashesToSign } = await Evm.prepareTransactionForSigning({
     from: senderAddress,
     to: ethContractAddress,
