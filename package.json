@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@hono/node-server": "1.19.11",
-    "@neardefi/shade-agent-js": "2.0.1",
+    "@neardefi/shade-agent-js": "2.1.0",
     "chainsig.js": "1.1.14",
     "cors": "2.8.6",
     "dotenv": "17.3.1",
