@@ -11,17 +11,17 @@
     "start": "tsx dist/index.js"
   },
   "dependencies": {
-    "@hono/node-server": "^1.15.0",
-    "@neardefi/shade-agent-js": "^2.0.0",
-    "chainsig.js": "^1.1.11",
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "ethers": "^6.11.1",
-    "hono": "^4.8.4",
-    "tsx": "^4.0.0"
+    "@hono/node-server": "1.19.11",
+    "@neardefi/shade-agent-js": "2.1.0",
+    "chainsig.js": "1.1.14",
+    "cors": "2.8.6",
+    "dotenv": "17.3.1",
+    "ethers": "6.16.0",
+    "hono": "4.12.9",
+    "tsx": "4.21.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "25.5.0",
+    "typescript": "6.0.2"
   }
 }
