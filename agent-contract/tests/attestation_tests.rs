@@ -953,3 +953,168 @@ async fn test_attestation_expiration() -> Result<(), Box<dyn std::error::Error +
 
     Ok(())
 }
+
+/// First-time `register_agent` must attach storage stake; zero deposit fails until then.
+#[tokio::test]
+async fn test_register_agent_new_agent_requires_storage_deposit_integration(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
+    let network_config = create_network_config(&sandbox);
+    let (genesis_account_id, genesis_signer) = setup_genesis_account().await;
+
+    let contract_id =
+        deploy_contract_default(&network_config, &genesis_account_id, &genesis_signer).await?;
+
+    sleep(Duration::from_millis(200)).await;
+
+    let (agent_id, agent_signer) = create_user_account(
+        &network_config,
+        &genesis_account_id,
+        &genesis_signer,
+        "deposit_flow_agent",
+    )
+    .await?;
+
+    let _ = call_transaction(
+        &contract_id,
+        "whitelist_agent_for_local",
+        json!({
+            "account_id": agent_id
+        }),
+        &genesis_account_id,
+        &genesis_signer,
+        &network_config,
+        None,
+    )
+    .await?
+    .assert_success();
+
+    // No attached deposit on first register → must fail (storage required)
+    let _ = call_transaction(
+        &contract_id,
+        "register_agent",
+        json!({
+            "attestation": serde_json::to_value(create_mock_dstack_attestation()).unwrap()
+        }),
+        &agent_id,
+        &agent_signer,
+        &network_config,
+        None,
+    )
+    .await?
+    .assert_failure();
+
+    // First successful registration with storage deposit
+    let _ = call_transaction(
+        &contract_id,
+        "register_agent",
+        json!({
+            "attestation": serde_json::to_value(create_mock_dstack_attestation()).unwrap()
+        }),
+        &agent_id,
+        &agent_signer,
+        &network_config,
+        Some(helpers::DEPOSIT_005_NEAR),
+    )
+    .await?
+    .assert_success();
+
+    sleep(Duration::from_millis(200)).await;
+
+    let agent_info: Data<Option<AgentView>> = call_view(
+        &contract_id,
+        "get_agent",
+        json!({ "account_id": agent_id }),
+        &network_config,
+    )
+    .await?;
+    let agent = agent_info.data.expect("agent should be registered after first success");
+    assert!(
+        matches!(agent.validity, AgentValidity::Valid),
+        "Agent should be valid after first registration"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_register_agent_reregister_without_storage_deposit_integration(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
+    let network_config = create_network_config(&sandbox);
+    let (genesis_account_id, genesis_signer) = setup_genesis_account().await;
+
+    let contract_id =
+        deploy_contract_default(&network_config, &genesis_account_id, &genesis_signer).await?;
+
+    sleep(Duration::from_millis(200)).await;
+
+    let (agent_id, agent_signer) = create_user_account(
+        &network_config,
+        &genesis_account_id,
+        &genesis_signer,
+        "deposit_reregister_agent",
+    )
+    .await?;
+
+    let _ = call_transaction(
+        &contract_id,
+        "whitelist_agent_for_local",
+        json!({
+            "account_id": agent_id
+        }),
+        &genesis_account_id,
+        &genesis_signer,
+        &network_config,
+        None,
+    )
+    .await?
+    .assert_success();
+
+    let _ = call_transaction(
+        &contract_id,
+        "register_agent",
+        json!({
+            "attestation": serde_json::to_value(create_mock_dstack_attestation()).unwrap()
+        }),
+        &agent_id,
+        &agent_signer,
+        &network_config,
+        Some(helpers::DEPOSIT_005_NEAR),
+    )
+    .await?
+    .assert_success();
+
+    sleep(Duration::from_millis(200)).await;
+
+    let _ = call_transaction(
+        &contract_id,
+        "register_agent",
+        json!({
+            "attestation": serde_json::to_value(create_mock_dstack_attestation()).unwrap()
+        }),
+        &agent_id,
+        &agent_signer,
+        &network_config,
+        None,
+    )
+    .await?
+    .assert_success();
+
+    sleep(Duration::from_millis(200)).await;
+
+    let agent_info: Data<Option<AgentView>> = call_view(
+        &contract_id,
+        "get_agent",
+        json!({ "account_id": agent_id }),
+        &network_config,
+    )
+    .await?;
+    let agent = agent_info.data.expect("agent should still be registered");
+    assert!(
+        matches!(agent.validity, AgentValidity::Valid),
+        "Agent should remain valid after zero-deposit re-register"
+    );
+
+    Ok(())
+}

@@ -83,18 +83,23 @@ impl Contract {
     // Register an agent, this needs to be called by the agent itself
     #[payable]
     pub fn register_agent(&mut self, attestation: DstackAttestation) -> bool {
-        // Require the agent to pay for the storage cost
-        // You should update the STORAGE_BYTES_TO_REGISTER const if you store more data
-        let storage_cost = env::storage_byte_cost()
-            .checked_mul(STORAGE_BYTES_TO_REGISTER)
-            .unwrap();
-        require!(
-            env::attached_deposit() >= storage_cost,
-            &format!(
-                "Attached deposit must be greater than storage cost {:?}",
-                storage_cost.exact_amount_display()
-            )
-        );
+        let predecessor = env::predecessor_account_id();
+        let already_registered = self.agents.get(&predecessor).is_some();
+
+        // New agents must cover storage; re-registration only updates existing state (no extra storage)
+        if !already_registered {
+            // You should update the STORAGE_BYTES_TO_REGISTER const if you store more data
+            let storage_cost = env::storage_byte_cost()
+                .checked_mul(STORAGE_BYTES_TO_REGISTER)
+                .unwrap();
+            require!(
+                env::attached_deposit() >= storage_cost,
+                &format!(
+                    "Attached deposit must be greater than storage cost {:?}",
+                    storage_cost.exact_amount_display()
+                )
+            );
+        }
 
         // Verify the attestation and get the measurements and PPID for the agent
         let (measurements, ppid) = self.verify_attestation(attestation.clone());
@@ -102,7 +107,7 @@ impl Contract {
         let valid_until_ms = block_timestamp_ms() + self.attestation_expiration_time_ms;
 
         Event::AgentRegistered {
-            account_id: &env::predecessor_account_id(),
+            account_id: &predecessor,
             measurements: &measurements,
             ppid: &ppid,
             current_time_ms: U64::from(block_timestamp_ms()),
@@ -112,7 +117,7 @@ impl Contract {
 
         // Register the agent
         self.agents.insert(
-            env::predecessor_account_id(),
+            predecessor,
             Agent {
                 measurements,
                 ppid,
