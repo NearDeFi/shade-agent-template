@@ -29,6 +29,7 @@ agent_contract:
     deploy_from_source:
       enabled: true
       source_path: ./agent-contract
+      reproducible_build: false
     # Option 2: Use pre-built WASM file
     deploy_from_wasm:
       enabled: false
