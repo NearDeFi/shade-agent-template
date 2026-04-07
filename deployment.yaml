@@ -12,7 +12,7 @@ agent_contract:
   # Fill this out with a unique contract id for your agent contract
   # For example: example-contract-123.testnet
   # This account should not already be in use
-  contract_id: aijsdfoiasjdfoiwjf.testnet
+  contract_id:
 
   # Optional, if not enabled the contract will not be deployed
   # and it's assumed the agent contract is already deployed to the contract_id
@@ -29,6 +29,7 @@ agent_contract:
     deploy_from_source:
       enabled: true
       source_path: ./agent-contract
+      reproducible_build: false
     # Option 2: Use pre-built WASM file
     deploy_from_wasm:
       enabled: false
@@ -94,6 +95,7 @@ build_docker_image:
   tag:
   cache: true
   dockerfile_path: ./Dockerfile
+  reproducible_build: false
 
 # Deploy the docker compose file to Phala Cloud with the specified environment variables
 # Optional, if not enabled the app will not be deployed to Phala Cloud
@@ -102,6 +104,8 @@ deploy_to_phala:
   enabled: true
   app_name: my-first-agent
   env_file_path: ./.env
+  dstack_version: 0.5.8
+  instance_type: tdx.small
 
 # Helper command to whitelist an agent for local mode
 # Use the "shade whitelist" command
