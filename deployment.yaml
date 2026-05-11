@@ -105,7 +105,12 @@ deploy_to_phala:
   app_name: my-first-agent
   env_file_path: ./.env
   dstack_version: 0.5.8
+  # Corresponds to the virtual hardware given to the TEE
   instance_type: tdx.small
+  # If true TEE logs are public
+  public_logs: true
+  # If true metrics are public
+  public_sysinfo: true
 
 # Helper command to whitelist an agent for local mode
 # Use the "shade whitelist" command
