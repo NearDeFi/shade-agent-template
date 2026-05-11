@@ -2,7 +2,7 @@
 use near_api::{
     Account, AccountId, Contract, NearToken, NetworkConfig, RPCEndpoint, Signer, signer,
 };
-use near_api_types::transaction::result::ExecutionFinalResult;
+use near_api_types::transaction::result::{ExecutionFinalResult, TransactionResult};
 use near_sandbox::{GenesisAccount, Sandbox};
 use serde_json::json;
 use shade_attestation::measurements::create_mock_full_measurements_hex;
@@ -320,12 +320,12 @@ pub async fn call_transaction(
         tx = tx.deposit(dep);
     }
 
-    let result = tx
+    let tx_result = tx
         .with_signer(signer_account_id.clone(), signer.clone())
         .send_to(network_config)
         .await?;
 
-    Ok(result)
+    Ok(unwrap_full(tx_result)?)
 }
 
 #[allow(dead_code)]
@@ -342,12 +342,24 @@ pub async fn call_transaction_raw(
 
     let tx = call.transaction();
 
-    let result = tx
+    let tx_result = tx
         .with_signer(signer_account_id.clone(), signer.clone())
         .send_to(network_config)
         .await?;
 
-    Ok(result)
+    Ok(unwrap_full(tx_result)?)
+}
+
+#[allow(dead_code)]
+fn unwrap_full(
+    tx_result: TransactionResult,
+) -> Result<ExecutionFinalResult, Box<dyn std::error::Error + Send + Sync>> {
+    match tx_result {
+        TransactionResult::Full(r) => Ok(*r),
+        TransactionResult::Pending { status } => {
+            Err(format!("transaction still pending: {status:?}").into())
+        }
+    }
 }
 
 #[allow(dead_code)]
