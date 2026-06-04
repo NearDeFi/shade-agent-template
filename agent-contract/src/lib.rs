@@ -102,7 +102,7 @@ impl Contract {
         }
 
         // Verify the attestation and get the measurements and PPID for the agent
-        let (measurements, ppid, advisory_ids) = self.verify_attestation(attestation.clone());
+        let (measurements, ppid, advisory_ids) = self.verify_attestation(attestation);
 
         let valid_until_ms = block_timestamp_ms() + self.attestation_expiration_time_ms;
         let (advisory_ids_truncated, number_of_advisory_ids) =
