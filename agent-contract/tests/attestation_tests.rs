@@ -956,8 +956,8 @@ async fn test_attestation_expiration() -> Result<(), Box<dyn std::error::Error +
 
 /// First-time `register_agent` must attach storage stake; zero deposit fails until then.
 #[tokio::test]
-async fn test_register_agent_new_agent_requires_storage_deposit_integration(
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_register_agent_new_agent_requires_storage_deposit_integration()
+-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
     let network_config = create_network_config(&sandbox);
     let (genesis_account_id, genesis_signer) = setup_genesis_account().await;
@@ -1028,7 +1028,9 @@ async fn test_register_agent_new_agent_requires_storage_deposit_integration(
         &network_config,
     )
     .await?;
-    let agent = agent_info.data.expect("agent should be registered after first success");
+    let agent = agent_info
+        .data
+        .expect("agent should be registered after first success");
     assert!(
         matches!(agent.validity, AgentValidity::Valid),
         "Agent should be valid after first registration"
@@ -1038,8 +1040,8 @@ async fn test_register_agent_new_agent_requires_storage_deposit_integration(
 }
 
 #[tokio::test]
-async fn test_register_agent_reregister_without_storage_deposit_integration(
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_register_agent_reregister_without_storage_deposit_integration()
+-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
     let network_config = create_network_config(&sandbox);
     let (genesis_account_id, genesis_signer) = setup_genesis_account().await;

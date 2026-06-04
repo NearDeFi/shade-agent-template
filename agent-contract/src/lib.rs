@@ -10,7 +10,7 @@ use near_sdk::{
     store::{IterableMap, IterableSet},
 };
 use shade_attestation::{
-    attestation::DstackAttestation,
+    attestation::{AcceptedDstackAttestation, DstackAttestation},
     measurements::{FullMeasurements, FullMeasurementsHex, create_mock_full_measurements_hex},
     report_data::ReportData,
     tcb_info::HexBytes,
@@ -102,14 +102,18 @@ impl Contract {
         }
 
         // Verify the attestation and get the measurements and PPID for the agent
-        let (measurements, ppid) = self.verify_attestation(attestation.clone());
+        let (measurements, ppid, advisory_ids) = self.verify_attestation(attestation.clone());
 
         let valid_until_ms = block_timestamp_ms() + self.attestation_expiration_time_ms;
+        let (advisory_ids_truncated, number_of_advisory_ids) =
+            internal::events::summarize_advisory_ids(&advisory_ids);
 
         Event::AgentRegistered {
             account_id: &predecessor,
             measurements: &measurements,
             ppid: &ppid,
+            advisory_ids_truncated,
+            number_of_advisory_ids,
             current_time_ms: U64::from(block_timestamp_ms()),
             valid_until_ms: U64::from(valid_until_ms),
         }
