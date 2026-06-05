@@ -345,16 +345,14 @@ fn test_remove_agent_not_owner() {
     contract.remove_agent(agent);
 }
 
-// Test that a whitelisted agent can register with sufficient deposit
+// Happy path: first-time registration must attach sufficient storage deposit
 #[test]
-fn test_register_agent_without_tee() {
+fn test_register_agent_happy_first_registration_with_storage_deposit() {
     let mut contract = setup_contract();
     let agent = accounts(2);
 
-    // Owner whitelists the agent (default measurements and PPID already approved in setup)
     contract.whitelist_agent_for_local(agent.clone());
 
-    // Agent registers with fake attestation and 0.005 NEAR deposit
     let context = get_context_with_deposit(agent.clone(), false, Some(DEPOSIT_005_NEAR));
     testing_env!(context.build());
 
@@ -365,31 +363,29 @@ fn test_register_agent_without_tee() {
     assert!(matches!(agent_info.validity, AgentValidity::Valid));
 }
 
-// Test that an agent can register twice and the registration is updated
+// Happy path: first registration with deposit, then re-register with zero (no extra storage)
 #[test]
-fn test_register_agent_twice() {
+fn test_register_agent_happy_reregister_without_additional_deposit() {
     let mut contract = setup_contract();
     let agent = accounts(2);
 
     contract.whitelist_agent_for_local(agent.clone());
 
-    // Register agent first time with 0.005 NEAR deposit
     let context = get_context_with_deposit(agent.clone(), false, Some(DEPOSIT_005_NEAR));
     testing_env!(context.build());
-    let result = contract.register_agent(create_mock_dstack_attestation());
-    assert!(result);
+    assert!(contract.register_agent(create_mock_dstack_attestation()));
+    assert!(matches!(
+        contract.get_agent(agent.clone()).unwrap().validity,
+        AgentValidity::Valid
+    ));
 
-    let agent_info = contract.get_agent(agent.clone()).unwrap();
-    assert!(matches!(agent_info.validity, AgentValidity::Valid));
-
-    // Register agent again with 0.005 NEAR deposit
-    let context = get_context_with_deposit(agent.clone(), false, Some(DEPOSIT_005_NEAR));
+    let context = get_context_with_deposit(agent.clone(), false, Some(DEPOSIT_ZERO));
     testing_env!(context.build());
-    let result = contract.register_agent(create_mock_dstack_attestation());
-    assert!(result);
-
-    let agent_info = contract.get_agent(agent.clone()).unwrap();
-    assert!(matches!(agent_info.validity, AgentValidity::Valid));
+    assert!(contract.register_agent(create_mock_dstack_attestation()));
+    assert!(matches!(
+        contract.get_agent(agent.clone()).unwrap().validity,
+        AgentValidity::Valid
+    ));
 }
 
 // Test that an agent cannot register if not whitelisted for local
@@ -404,10 +400,10 @@ fn test_register_agent_not_whitelisted() {
     contract.register_agent(create_mock_dstack_attestation());
 }
 
-// Test that register_agent fails with insufficient deposit (0 NEAR)
+// First-time registration requires storage stake: zero attached deposit must fail
 #[test]
 #[should_panic(expected = "Attached deposit must be greater than storage cost")]
-fn test_register_agent_insufficient_deposit_zero() {
+fn test_register_agent_errors_when_storage_deposit_required_but_zero_attached() {
     let mut contract = setup_contract();
     let agent = accounts(2);
 
@@ -420,10 +416,10 @@ fn test_register_agent_insufficient_deposit_zero() {
     contract.register_agent(create_mock_dstack_attestation());
 }
 
-// Test that register_agent fails with insufficient deposit (0.003 NEAR)
+// First-time registration: attached deposit below storage cost must fail
 #[test]
 #[should_panic(expected = "Attached deposit must be greater than storage cost")]
-fn test_register_agent_insufficient_deposit_low() {
+fn test_register_agent_errors_when_storage_deposit_insufficient() {
     let mut contract = setup_contract();
     let agent = accounts(2);
 
@@ -1110,4 +1106,49 @@ fn test_get_agents_expiration_fields() {
         matches!(agent1_info.validity, AgentValidity::Invalid(ref r) if r.contains(&AgentRemovalReason::ExpiredAttestation))
     );
     assert!(matches!(agent2_info.validity, AgentValidity::Valid));
+}
+
+// -------- summarize_advisory_ids (AgentRegistered event payload) --------
+
+use super::events::{MAX_ADVISORY_IDS, summarize_advisory_ids};
+
+// Builds `n` distinct advisory IDs in a stable order.
+fn advisory_ids(n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("INTEL-DOC-{i}")).collect()
+}
+
+// No advisories: empty list and a zero count.
+#[test]
+fn summarize_advisory_ids_empty() {
+    let (shown, total) = summarize_advisory_ids(&[]);
+    assert!(shown.is_empty());
+    assert_eq!(total, 0);
+}
+
+// Fewer than the cap: every ID is returned, in order, with the exact count.
+#[test]
+fn summarize_advisory_ids_below_cap() {
+    let ids = advisory_ids(3);
+    let (shown, total) = summarize_advisory_ids(&ids);
+    assert_eq!(shown, ids);
+    assert_eq!(total, 3);
+}
+
+// Exactly at the cap: every ID is returned and none are dropped.
+#[test]
+fn summarize_advisory_ids_at_cap() {
+    let ids = advisory_ids(MAX_ADVISORY_IDS);
+    let (shown, total) = summarize_advisory_ids(&ids);
+    assert_eq!(shown, ids);
+    assert_eq!(total as usize, MAX_ADVISORY_IDS);
+}
+
+// More than the cap: the shown list is truncated to the first `MAX_ADVISORY_IDS`,
+// but the reported total still reflects the true number of advisories.
+#[test]
+fn summarize_advisory_ids_above_cap_truncates_but_counts_all() {
+    let ids = advisory_ids(MAX_ADVISORY_IDS + 4);
+    let (shown, total) = summarize_advisory_ids(&ids);
+    assert_eq!(shown.as_slice(), &ids[..MAX_ADVISORY_IDS]);
+    assert_eq!(total as usize, MAX_ADVISORY_IDS + 4);
 }

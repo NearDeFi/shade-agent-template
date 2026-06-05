@@ -3831,9 +3831,9 @@ dependencies = [
 
 [[package]]
 name = "shade-attestation"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "052f350de2a713556da79e4765d75a2a85181d1112bd773b414a3991874ec1aa"
+checksum = "ca13cb03d303d73cb786a6bb2e80d0234d146914fd06fc92a586b4a1dbab8cbf"
 dependencies = [
  "borsh",
  "dcap-qvl",

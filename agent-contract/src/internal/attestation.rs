@@ -4,8 +4,8 @@ impl Contract {
     pub(crate) fn verify_attestation(
         &self,
         attestation: DstackAttestation,
-    ) -> (FullMeasurementsHex, Ppid) {
-        let result: (FullMeasurementsHex, Ppid) = match self.requires_tee {
+    ) -> (FullMeasurementsHex, Ppid, Vec<String>) {
+        let result: (FullMeasurementsHex, Ppid, Vec<String>) = match self.requires_tee {
             true => {
                 // Verify account_ID is an implicit account ID
                 let account_id_str = env::predecessor_account_id().to_string();
@@ -42,9 +42,11 @@ impl Contract {
                     &expected_measurements,
                     &approved_ppids,
                 ) {
-                    Ok((verified_measurements, verified_ppid)) => {
-                        (verified_measurements.into(), verified_ppid)
-                    }
+                    Ok(AcceptedDstackAttestation {
+                        measurements,
+                        ppid,
+                        advisory_ids,
+                    }) => (measurements.into(), ppid, advisory_ids),
                     Err(e) => {
                         panic!("Attestation verification failed: {}", e);
                     }
@@ -66,7 +68,7 @@ impl Contract {
                     self.approved_ppids.contains(&Ppid::default()),
                     "Default PPID must be approved for local mode"
                 );
-                (default_measurements, Ppid::default())
+                (default_measurements, Ppid::default(), Vec::new())
             }
         };
         result
